@@ -2354,7 +2354,7 @@ fn finish_landed_play(app: &mut App, resume_prepared: bool) {
     }
     let player_page = matches!(app.route(), AppArg::Player);
     let failed = matches!(plx_media::player::state(&app.player.session), plx_media::player::PlaybackState::Error);
-    app.hue.tick(player_page, app.window_activity.allow_present(true), plx_media::player::seen_frame(), failed);
+    app.hue.tick(super::clock::now(), player_page, app.window_activity.allow_present(true), plx_media::player::seen_frame(), failed);
 }
 
 /// The draw phase, entered only on a presenting frame: `clear_opaque_region` at entry, the

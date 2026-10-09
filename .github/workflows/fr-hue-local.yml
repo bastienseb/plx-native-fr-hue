@@ -13,8 +13,6 @@ concurrency:
 
 env:
   RUST_NIGHTLY: nightly-2026-07-02
-  FLAVOR: stable
-  RELEASE: '1'
   CARGO_INCREMENTAL: '0'
   PLX_SENTRY_DSN: ''
   PLX_POSTHOG_KEY: ''
@@ -34,13 +32,16 @@ jobs:
           sdl: 'true'
       - name: Host gates and Hue companion tests
         run: |
-          make FLAVOR=stable RELEASE=1 check
+          make check
           python3 -m unittest discover -s ci/hue-companion -p 'test_*.py' -v
 
   package:
     needs: checks
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
+    env:
+      FLAVOR: stable
+      RELEASE: '1'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:

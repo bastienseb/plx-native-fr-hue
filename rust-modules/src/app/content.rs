@@ -226,7 +226,7 @@ fn drain_held_feature(app: &mut App) {
     if !request_play_intent(&mut app.player.session, app.bridge.metadata_mut(), &held.play) {
         return;
     }
-    app.hue.arm(matches!(held.play, plx_screens::registry::PlayIntent::WithHue(_)));
+    app.hue.arm(matches!(held.play, plx_screens::registry::PlayIntent::WithHue(_)), super::clock::now());
     start_playback(
         &mut app.player.session,
         &mut app.adapters.player,
@@ -548,7 +548,7 @@ pub(crate) fn content_requests(app: &mut App, fr: &Frame) {
                 // Held-feature drain uses this same helper: a trailer Play pressed while a
                 // preview still occupies must install the Info-card descriptor too.
                 if !request_play_intent(&mut app.player.session, app.bridge.metadata_mut(), &play) { continue; }
-                app.hue.arm(matches!(play, plx_screens::registry::PlayIntent::WithHue(_)));
+                app.hue.arm(matches!(play, plx_screens::registry::PlayIntent::WithHue(_)), super::clock::now());
                 // The page's own `ReturnState` rides the push, so BACK out of the playback finds
                 // the spot the Play was pressed from. It was `Trail::set_top_spot` plus a
                 // second, hand-written `NavOp::Push` after the fact.
