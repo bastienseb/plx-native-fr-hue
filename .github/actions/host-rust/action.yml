@@ -50,3 +50,4 @@ runs:
       # own `target/` instead of racing to save one.
       with:
         workspaces: rust-modules
+        cache-on-failure: true

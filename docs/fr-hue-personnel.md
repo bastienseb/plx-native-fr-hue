@@ -36,7 +36,7 @@ Un échec des contrôles doit être corrigé avant installation.
 
 ## Service Hue complémentaire
 
-`ci/hue-companion/` contient le complément du service de test de couleurs déjà
+`pkg/hue-companion/` contient le complément du service de test de couleurs déjà
 installé avec lg-hue-sync. Les deux fichiers `tv_color_test.py` et
 `tv_playback_hue.py` doivent être installés ensemble dans le dossier du service
 existant, puis celui-ci redémarré. Le service reste sur la boucle locale
