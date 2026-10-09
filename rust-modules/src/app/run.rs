@@ -1627,6 +1627,15 @@ pub(crate) unsafe fn playback_tick(app: &mut App, fr: &mut Frame) {
             // a finished playback moves Continue Watching and watch state, so invalidate each
             // Bridge-owned Browse store through `Bridge::browse_run`.
             app.bridge.browse_run(plx_data::stores::browse::BrowseCmd::HubsInvalidateAll);
+            // The retained Detail page still holds its PRE-playback viewOffset. Refresh it
+            // after the same stop-report delay, preserving its current focus and season.
+            // Otherwise Play remains labelled Play and sends resume_ns=0 after BACK.
+            if let Some(AppArg::Content(plx_screens::registry::ContentArg::Detail { sid, rk })) =
+                app.pages.nav.top_page().map(|entry| entry.arg.clone())
+            {
+                refresh_content(&mut app.pages, &mut app.bridge,
+                    plx_data::stores::viewstate::DetailRefresh { sid, rk, keep: None });
+            }
             log("home: hubs refresh queued after playback");
         }
         // (The lost-keyup safety net and the CLIENT-SIDE LONG-PRESS REPEAT stood here — the one
@@ -3258,6 +3267,38 @@ mod lifecycle_regression_tests {
         unsafe { update(&mut app, &mut fr); }
         assert!(!app.hue.started_for_test(), "leaving Player must release Hue without another landing");
         plx_media::player::SHARED.reset_session();
+    }
+
+    #[test]
+    fn post_playback_refresh_refetches_the_retained_detail_resume_once_when_due() {
+        let _serial = plx_base::testlock::serial();
+        let mut app = app();
+        let sid = plx_plex::plex::ServerId::UNSET;
+        let rk = "resume-film";
+        super::super::bridge::show_page(&mut app.pages,
+            AppArg::Content(plx_screens::registry::ContentArg::Detail { sid, rk: rk.into() }));
+        frame(&mut app, 0);
+        app.bridge.metadata_mut().adapter_ref().run_held_detail_fetches_for_test();
+        app.bridge.metadata_mut().pump_detail();
+        plx_data::metadata::set_current_for_test(app.bridge.metadata_mut().state_mut(),
+            Some(plx_data::metadata::Detail { sid, rk: rk.into(), resume_ms: 0,
+                dur_ms: 600_000, ..Default::default() }));
+        let generation = app.bridge.metadata_view().detail_generation();
+        app.refresh_hubs_at = 800;
+        let mut fr = Frame::begin(&app.player.session, app.bridge.metadata_view());
+        fr.now = 799;
+        unsafe { playback_tick(&mut app, &mut fr); }
+        assert_eq!(app.bridge.metadata_view().detail_generation(), generation);
+        fr.now = 800;
+        unsafe { playback_tick(&mut app, &mut fr); }
+        assert_eq!(app.bridge.metadata_view().detail_generation(), generation + 1,
+            "the retained fiche must refetch the server resume point after a stop");
+        assert_eq!(app.bridge.metadata_view().detail_request_status(sid, rk), Some(true));
+        fr.now = 816;
+        unsafe { playback_tick(&mut app, &mut fr); }
+        assert_eq!(app.bridge.metadata_view().detail_generation(), generation + 1);
+        app.bridge.metadata_mut().adapter_ref().run_held_detail_fetches_for_test();
+        app.bridge.metadata_mut().pump_detail();
     }
 
     fn event(app: &mut App, fr: &mut Frame, et: u32) {
