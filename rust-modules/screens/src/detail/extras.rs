@@ -144,6 +144,7 @@ mod tests {
                 assert_eq!(context, plx_data::metadata::EXTRA_CONTEXT);
             }
             PlayIntent::Movie(_) => panic!("an extra is not the parent movie"),
+            PlayIntent::WithHue(_) => panic!("playing an extra does not request Hue"),
         }
         assert!(play(&d, elem(1).unwrap()).is_none());
     }
