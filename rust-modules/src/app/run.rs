@@ -2352,6 +2352,9 @@ fn finish_landed_play(app: &mut App, resume_prepared: bool) {
             }
         }
     }
+    let player_page = matches!(app.route(), AppArg::Player);
+    let failed = matches!(plx_media::player::state(&app.player.session), plx_media::player::PlaybackState::Error);
+    app.hue.tick(player_page, app.window_activity.allow_present(true), plx_media::player::seen_frame(), failed);
 }
 
 /// The draw phase, entered only on a presenting frame: `clear_opaque_region` at entry, the
@@ -3085,7 +3088,8 @@ mod lifecycle_regression_tests {
             fps_shown: Default::default(),
             play_prev: None,
             running: Default::default(),
-            window_activity: crate::app::window_activity::WindowActivity::new(),
+            hue: super::hue::Session::default(),
+        window_activity: crate::app::window_activity::WindowActivity::new(),
             #[cfg(feature = "devtools")]
             buffer_flip_count: Default::default(),
             down_sym: Default::default(),

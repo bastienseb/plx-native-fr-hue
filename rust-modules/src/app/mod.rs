@@ -117,6 +117,7 @@ pub(crate) mod clock;
 mod clock_notice;
 mod recorder;
 mod window_activity;
+mod hue;
 pub(crate) mod events;
 pub(crate) mod lifecycle;
 pub(crate) mod playback;
@@ -222,6 +223,7 @@ pub(crate) struct Adapters {
 /// helpers they still reach through `&mut App` need to be visible outside this module's subtree.
 /// Nothing here becomes `pub` — only as wide as the crate.
 pub(crate) struct App {
+    pub(crate) hue: hue::Session,
     last_input: u32,
     loop_t: u32,
     iters_ct: i32,

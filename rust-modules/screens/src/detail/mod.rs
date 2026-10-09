@@ -223,7 +223,7 @@ pub struct DetailScreen {
     cast: Shelf,
     tabs: TabStrip,
     season_pop: CtlPop<1>,
-    ctl_pop: CtlPop<5>,
+    ctl_pop: CtlPop<6>,
     disc_unfurl: [Spring; 3],
     season_metrics: season::Metrics,
     about_rows: about::Rows,
@@ -2632,7 +2632,7 @@ impl DetailScreen {
         // to Play the instant `full_trailer()` flips (that gate lives in `valid`/`focusable` and
         // is unchanged), but what's DRAWN must not narrow in the same frame — the caller already
         // fades every button through `chrome`'s `preview_chrome` alpha (`draw_hero`), and cutting
-        // four of the five pills here a frame early defeats that fade before it can be seen.
+        // the other controls here a frame early defeats that fade before it can be seen.
         let (controls, n) = hero::hero_ctls(set);
         let last = hero::hero_btn_rect_at(set, n.saturating_sub(1), y, widths);
         let row = [
@@ -2664,8 +2664,8 @@ impl DetailScreen {
             let focused = current == Some(ctl.elem());
             let scale = self.ctl_pop.scale(i);
             match ctl {
-                hero::HeroCtl::Play => Button::new(
-                    hero::hero_pill_label(set.restart).as_ptr(),
+                hero::HeroCtl::Play | hero::HeroCtl::PlayHue => Button::new(
+                    if ctl == hero::HeroCtl::PlayHue { hero::hue_pill_label(set.restart).as_ptr() } else { hero::hero_pill_label(set.restart).as_ptr() },
                     theme::size::BODY,
                     rect,
                 )
@@ -2676,7 +2676,7 @@ impl DetailScreen {
                 .scale(scale)
                 .draw(&Env::inert(), p),
                 hero::HeroCtl::Alt => {
-                    Button::new(hero::alt_label().as_ptr(), theme::size::BODY, rect)
+                    Button::new(hero::alt_label_for(set).as_ptr(), theme::size::BODY, rect)
                         .trailing_icon(plx_ui::icons::Icon::ChevronDown)
                         .focused(focused)
                         .palette(palette)
@@ -3679,6 +3679,7 @@ impl DetailScreen {
         // `!hero_set().trailer` and then drive `ELEM_TRAILER` directly to prove `activate_hero`'s
         // handling stays correct even though the disc itself is never shown.)
         hero::HeroSet {
+            hue: true,
             restart,
             trailer: false,
             alt: self.alt_available(meta),
@@ -3819,6 +3820,9 @@ impl DetailScreen {
     ) {
         let measure = cx.measure;
         match ctl {
+            hero::HeroCtl::PlayHue => {
+                self.play_hero_with_hue(false, true, fx, meta);
+            }
             hero::HeroCtl::Play => {
                 self.play_hero(false, fx, meta);
             }
@@ -3891,6 +3895,10 @@ impl DetailScreen {
     }
 
     fn play_hero<H: ContentLike>(&mut self, from_start: bool, fx: &mut Effects<'_, H>, meta: plx_data::metadata::MetadataView<'_>) -> bool {
+        self.play_hero_with_hue(from_start, false, fx, meta)
+    }
+
+    fn play_hero_with_hue<H: ContentLike>(&mut self, from_start: bool, hue: bool, fx: &mut Effects<'_, H>, meta: plx_data::metadata::MetadataView<'_>) -> bool {
         let Some(d) = self.detail(meta) else { return false };
         if d.is_show {
             let i = hero::hero_episode(d).and_then(|ep| {
@@ -3899,11 +3907,13 @@ impl DetailScreen {
                     .position(|candidate| candidate.rk == ep.rk)
             });
             match i {
-                Some(i) => self.play_episode_at(i, from_start, fx, meta),
+                Some(i) if !meta.season_loading() => self.play_episode_value(d.episodes.get(i), d, from_start, hue, fx),
+                Some(_) => false,
                 None => self.play_episode_value(
                     hero::hero_episode(d).or_else(|| d.episodes.first()),
                     d,
                     from_start,
+                    hue,
                     fx,
                 ),
             }
@@ -3921,6 +3931,7 @@ impl DetailScreen {
                 |m| PlayIntent::Movie(m.clone()),
             );
             let resume_ns = play_resume_ns(from_start, d.resume_ms, d.dur_ms);
+            let play = if hue { PlayIntent::WithHue(Box::new(play)) } else { play };
             self.content(fx, ContentReq::Play { play, resume_ns });
             true
         }
@@ -3937,7 +3948,7 @@ impl DetailScreen {
             return false;
         }
         let Some(d) = self.detail(meta) else { return false };
-        self.play_episode_value(d.episodes.get(index), d, from_start, fx)
+        self.play_episode_value(d.episodes.get(index), d, from_start, false, fx)
     }
 
     fn play_episode_value<H: ContentLike>(
@@ -3945,6 +3956,7 @@ impl DetailScreen {
         episode: Option<&plx_data::metadata::Episode>,
         d: &Detail,
         from_start: bool,
+        hue: bool,
         fx: &mut Effects<'_, H>,
     ) -> bool {
         let Some(ep) = episode else { return false };
@@ -3994,6 +4006,7 @@ impl DetailScreen {
             title,
             context,
         };
+        let play = if hue { PlayIntent::WithHue(Box::new(play)) } else { play };
         self.content(fx, ContentReq::Play { play, resume_ns });
         true
     }

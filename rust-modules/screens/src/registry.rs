@@ -963,6 +963,8 @@ impl ContentPanel {
 /// the page's navigation is skipped, which is what the page's own discarded `started` bool used
 /// to decide.
 pub enum PlayIntent {
+    /// Preserve the exact item and resume intent while requesting local Hue synchronization.
+    WithHue(Box<PlayIntent>),
     /// An item off this page's own metadata.
     Item {
         sid: plx_plex::plex::ServerId,

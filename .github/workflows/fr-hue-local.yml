@@ -1,0 +1,90 @@
+name: Version personnelle FR et Hue
+
+# Manual only: build an installable artifact, without publishing releases or tags.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fr-hue-local-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RUST_NIGHTLY: nightly-2026-07-02
+  FLAVOR: stable
+  RELEASE: '1'
+  CARGO_INCREMENTAL: '0'
+  PLX_SENTRY_DSN: ''
+  PLX_POSTHOG_KEY: ''
+  PLX_SENTRY_DSN_DEV: ''
+  PLX_POSTHOG_KEY_DEV: ''
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/host-rust
+        with:
+          sdl: 'true'
+      - name: Host gates and Hue companion tests
+        run: |
+          make FLAVOR=stable RELEASE=1 check
+          python3 -m unittest discover -s ci/hue-companion -p 'test_*.py' -v
+
+  package:
+    needs: checks
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Install the pinned Rust compiler
+        run: rustup toolchain install "$RUST_NIGHTLY" --profile minimal --component rust-src
+      - id: ndk
+        uses: ./.github/actions/webos-ndk
+      - name: Build and verify the stable package
+        env:
+          WEBOS_SDK: ${{ steps.ndk.outputs.sdk-dir }}
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)" FLAVOR=stable RELEASE=1
+          make FLAVOR=stable RELEASE=1 ipk
+          ./ci/check-elf.sh
+          grep -q -- '--no-default-features' pkg/.build-config
+          test -s pkg/com.beb.plxnative_0.8.0_arm.ipk
+      - name: Include corresponding source and build information
+        env:
+          WEBOS_SDK: ${{ steps.ndk.outputs.sdk-dir }}
+        run: |
+          set -euo pipefail
+          cargo +"$RUST_NIGHTLY" fetch --locked --manifest-path rust-modules/Cargo.toml
+          printf '[]\n' > "$RUNNER_TEMP/private-values.json"
+          python3 ci/prepare-source-release.py --inputs "$RUNNER_TEMP/source-inputs" \
+            --output pkg/plxnative-source-fr-hue.tar.gz --rust-toolchain "$RUST_NIGHTLY" \
+            --binary pkg/com.beb.plxnative_0.8.0_arm.ipk --private-values "$RUNNER_TEMP/private-values.json"
+          cp vendor/ffmpeg-build/ffmpeg-*.tar.xz pkg/
+          cp ci/build-ffmpeg.sh pkg/
+          cp pkg/.build-config pkg/build-config.txt
+          git rev-parse HEAD > pkg/source-commit.txt
+          cp -R ci/hue-companion pkg/hue-companion
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: PlxNative-FR-Hue-personnel
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            pkg/com.beb.plxnative_0.8.0_arm.ipk
+            pkg/ipk.sha256
+            pkg/build-config.txt
+            pkg/source-commit.txt
+            pkg/plxnative-source-fr-hue.tar.gz*
+            pkg/ffmpeg-*.tar.xz
+            pkg/build-ffmpeg.sh
+            pkg/hue-companion/

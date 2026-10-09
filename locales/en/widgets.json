@@ -1071,5 +1071,9 @@
   "widgets.failure.change_quality": {
     "value": "Change quality",
     "description": "Failed-playback button: opens the quality ladder; picking a rung retries at it."
+  },
+  "widgets.hue.unavailable": {
+    "value": "Hue is unavailable. Playback continues. Check the synchronization app.",
+    "description": "A local Hue lease failed; the video continues without interruption."
   }
 }

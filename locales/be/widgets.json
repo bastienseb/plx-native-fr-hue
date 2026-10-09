@@ -264,5 +264,6 @@
   "widgets.region.nl": "Нідэрланды",
   "widgets.region.latin_america": "Лацінская Амерыка",
   "widgets.failure.play_auto": "Уключыць «Аўтаматычна» і прайграць",
-  "widgets.failure.change_quality": "Змяніць якасць"
+  "widgets.failure.change_quality": "Змяніць якасць",
+  "widgets.hue.unavailable": "Hue недаступны. Прагляд працягваецца. Праверце праграму сінхранізацыі."
 }

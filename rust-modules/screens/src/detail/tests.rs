@@ -979,12 +979,14 @@ fn hero_focus_follows_its_control_when_the_set_grows_under_it() {
 #[test]
 fn hero_focus_survives_a_control_appearing_in_the_middle_of_the_row() {
     let before = hero::HeroSet {
+        hue: false,
         restart: true,
         trailer: false,
         alt: false,
         mark: PosterMark::None,
     };
     let after = hero::HeroSet {
+        hue: false,
         alt: true,
         ..before
     };
@@ -1141,6 +1143,7 @@ fn a_landed_view_state_refresh_puts_the_browsed_season_back_and_never_steers_ano
 fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     let y = 812.0;
     let set = hero::HeroSet {
+        hue: false,
         restart: true,
         trailer: false,
         alt: false,
@@ -1151,6 +1154,7 @@ fn a_pointer_lands_on_the_capsule_the_unfurl_drew() {
     for unfurl in [0.2, 0.6, 1.0] {
         let disc = hero::disc_caps_at(set, 230.0, 0.0, [0.0, 0.0, unfurl], [201.0, 0.0, 267.0]);
         let widths = hero::HeroWidths {
+            hue: 0.0,
             pill: 230.0,
             alt: 0.0,
             disc,
@@ -1217,7 +1221,7 @@ fn hero_action_row_hit_matches_the_drawn_controls_at_every_set_size() {
                         "the preview path replaced the Trailer disc"
                     );
                     let (controls, n) = hero::hero_ctls(set);
-                    assert_eq!(n, 2 + usize::from(restart) + usize::from(alt));
+                    assert_eq!(n, 3 + usize::from(restart) + usize::from(alt));
                     sizes.insert(n);
                     for unfurl in [
                         [0.0, 0.0, 0.0],
@@ -1271,7 +1275,7 @@ fn hero_action_row_hit_matches_the_drawn_controls_at_every_set_size() {
             }
         }
     }
-    assert_eq!(sizes.into_iter().collect::<Vec<_>>(), vec![2, 3, 4]);
+    assert_eq!(sizes.into_iter().collect::<Vec<_>>(), vec![3, 4, 5]);
     assert_eq!(cases, 192);
     clear();
     plx_plex::plex::reset_servers_for_test();
@@ -2287,6 +2291,39 @@ fn play_item(effects: &[plx_machine::machine::Stamped<TestHost>]) -> Option<(&Pl
 }
 
 #[test]
+fn hue_play_keeps_the_movie_and_resume_point() {
+    let _guard = install(Detail {
+        sid: ServerId::UNSET, rk: "movie-hue".into(), kind: "movie".into(),
+        title: "Movie".into(), part: "/library/parts/movie-hue".into(),
+        resume_ms: 60_000, dur_ms: 3_600_000, ..Default::default()
+    });
+    let mut screen = bare(&_guard, ServerId::UNSET, "movie-hue");
+    let (_, effects) = step(&mut screen, &ScreenEvent::Activate(hero::ELEM_PLAY_HUE), Some(hero::ELEM_PLAY_HUE));
+    let (PlayIntent::WithHue(inner), resume) = play_item(&effects).unwrap() else { panic!("Hue intent required") };
+    assert_eq!(resume, 60_000_000_000);
+    assert!(matches!(inner.as_ref(), PlayIntent::Item { rk, part, .. } if rk == "movie-hue" && part == "/library/parts/movie-hue"));
+    clear();
+}
+
+#[test]
+fn hue_play_on_a_show_uses_the_same_episode_as_ordinary_play() {
+    let _guard = install(Detail {
+        sid: ServerId::UNSET, rk: "show-hue".into(), is_show: true, title: "Show".into(),
+        episodes: vec![plx_data::metadata::Episode {
+            rk: "episode-hue".into(), part: "/library/parts/episode-hue".into(),
+            title: "Pilot".into(), season: 1, index: 1, dur_ms: 1_800_000,
+            ..Default::default()
+        }], ..Default::default()
+    });
+    let mut screen = bare(&_guard, ServerId::UNSET, "show-hue");
+    let (_, effects) = step(&mut screen, &ScreenEvent::Activate(hero::ELEM_PLAY_HUE), Some(hero::ELEM_PLAY_HUE));
+    let (PlayIntent::WithHue(inner), resume) = play_item(&effects).unwrap() else { panic!("Hue intent required") };
+    assert_eq!(resume, 0);
+    assert!(matches!(inner.as_ref(), PlayIntent::Item { rk, part, .. } if rk == "episode-hue" && part == "/library/parts/episode-hue"));
+    clear();
+}
+
+#[test]
 fn a_movie_trailer_disc_plays_the_extra_from_the_start() {
     let extra = trailer_extra();
     let _guard = install(Detail {
@@ -2395,6 +2432,7 @@ fn a_show_trailer_disc_plays_the_extra_not_the_on_deck_episode() {
             assert_ne!(context.as_str(), plx_data::metadata::TRAILER_CONTEXT);
         }
         (PlayIntent::Movie(_), _) => {}
+        (PlayIntent::WithHue(_), _) => panic!("ordinary Play must not request Hue"),
     }
     clear();
 }

@@ -1270,7 +1270,7 @@ mod tests {
         let m = ShippedMeasure;
         let mark_budget = (CARD_W - 2.0 * 16.0) * HEADROOM;
         let mut out = Vec::new();
-        for language in [Preference::En, Preference::Es, Preference::Be] {
+        for language in plx_platform::i18n::SHIPPED {
             let _guard = language_on_this_thread_for_test(language);
             let season = PmsMovie { kind: 2, season_index: 99, ..Default::default() };
             let mark = member_label(&season);

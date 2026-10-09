@@ -1549,6 +1549,7 @@ pub(crate) unsafe fn construct(
         fps_shown,
         play_prev,
         running,
+        hue: super::hue::Session::default(),
         window_activity: super::window_activity::WindowActivity::new(),
         #[cfg(feature = "devtools")]
         buffer_flip_count,

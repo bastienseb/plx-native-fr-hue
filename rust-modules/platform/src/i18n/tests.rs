@@ -33,7 +33,7 @@ fn locale_resolution_separates_language_from_formatting() {
             .language(),
         Language::Be
     );
-    for tag in ["fr-FR", "be-Latn", "garbage\r\nheader", "C"] {
+    for tag in ["de-DE", "be-Latn", "garbage\r\nheader", "C"] {
         assert_eq!(
             LocaleContext::resolve(Preference::System, Some(tag), None, None, None).language(),
             Language::En
@@ -59,6 +59,26 @@ fn plural_rules_follow_the_message_language() {
     assert_eq!(es.plural(1), PluralCategory::One);
     assert_eq!(es.plural(2), PluralCategory::Other);
     assert_eq!(es.plural(1_000_000), PluralCategory::Many);
+}
+
+#[test]
+fn french_is_resolved_from_the_tv_or_an_explicit_preference() {
+    for tag in ["fr-FR", "fr_CA", "fr-BE", "fr-Latn-CH"] {
+        let locale = LocaleContext::resolve(Preference::System, Some(tag), None, None, None);
+        assert_eq!(locale.language(), Language::Fr, "{tag}");
+    }
+    let locale = LocaleContext::resolve(Preference::Fr, Some("en-US"), None, None, None);
+    assert_eq!(locale.format_locale(), "fr-FR");
+    assert_eq!(locale.decimal(45, 1), "4,5");
+    assert_eq!(locale.date(2026, 9, 27).as_deref(), Some("27/09/2026"));
+    for n in [0, 1] { assert_eq!(locale.plural(n), PluralCategory::One); }
+    assert_eq!(locale.plural(2), PluralCategory::Other);
+    assert_eq!(locale.plural(1_000_000), PluralCategory::Many);
+    assert_eq!(msg::browse_detail_play_in(&locale), "Lire");
+    assert_eq!(msg::browse_detail_play_hue_in(&locale), "Lire avec Hue");
+    assert_eq!(msg::browse_detail_resume_hue_in(&locale), "Reprendre avec Hue");
+    assert_eq!(serde_json::from_str::<Preference>("\"fr\"").unwrap(), Preference::Fr);
+    assert_eq!(serde_json::to_string(&Preference::Fr).unwrap(), "\"fr\"");
 }
 
 #[test]
