@@ -3818,7 +3818,7 @@ mod enhancement_menu_tests {
     /// never heard the word "remux" and should not need to.
     #[test]
     fn enh_notes_and_reasons_never_use_jargon() {
-        use plx_platform::i18n::{language_on_this_thread_for_test, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test};
         const BANNED: &[&str] = &[
             "remux",
             "transcode",
@@ -4203,7 +4203,7 @@ mod enhancement_menu_tests {
     /// `enh_rows_fit_menu_cap_es_be` over the Audio panel.
     #[test]
     fn subtitles_locked_note_fits_menu_cap_es_be() {
-        use plx_platform::i18n::{language_on_this_thread_for_test, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test};
         let mut out = Vec::new();
         for language in plx_platform::i18n::SHIPPED {
             let _g = plx_base::testlock::serial();
@@ -4925,7 +4925,7 @@ mod style_page_tests {
     /// notes), and each picker page, judged by the same gates as the rest of the menu.
     #[test]
     fn every_style_page_fits_the_panel_in_every_language() {
-        use plx_platform::i18n::{language_on_this_thread_for_test, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test};
         let mut out = Vec::new();
         for language in plx_platform::i18n::SHIPPED {
             let _g = plx_base::testlock::serial();
@@ -5502,7 +5502,7 @@ mod language_page_tests {
     /// judged by the same gates as the rest of the menu.
     #[test]
     fn the_language_pages_fit_the_panel_in_every_language() {
-        use plx_platform::i18n::{language_on_this_thread_for_test, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test};
         let mut out = Vec::new();
         for language in plx_platform::i18n::SHIPPED {
             let _g = plx_base::testlock::serial();

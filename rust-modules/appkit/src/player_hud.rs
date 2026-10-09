@@ -2619,7 +2619,7 @@ mod tests {
     fn every_failure_row_fits_the_screen_in_every_language() {
         use plx_base::fontcov::advances::ShippedMeasure;
         use plx_ui::fit::HEADROOM;
-        use plx_platform::i18n::{language_on_this_thread_for_test, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test};
         use plx_media::player::FailureAction as A;
         let rows: [&[A]; 3] = [
             &[A::PlayAutomatically, A::TryAgain, A::Back],
@@ -2652,7 +2652,7 @@ mod tests {
         use plx_base::fontcov::advances::ShippedMeasure;
         use plx_ui::fit::HEADROOM;
         use plx_ui::text_view::TextView;
-        use plx_platform::i18n::{language_on_this_thread_for_test, msg, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test, msg};
         let mut out = Vec::new();
         for language in plx_platform::i18n::SHIPPED {
             let _guard = language_on_this_thread_for_test(language);
@@ -2674,7 +2674,7 @@ mod tests {
     fn every_forced_verdict_fits_the_reason_slot_in_every_language() {
         use plx_base::fontcov::advances::ShippedMeasure;
         use plx_ui::fit::HEADROOM;
-        use plx_platform::i18n::{language_on_this_thread_for_test, msg, Preference};
+        use plx_platform::i18n::{language_on_this_thread_for_test, msg};
         let mut out = Vec::new();
         for language in plx_platform::i18n::SHIPPED {
             let _guard = language_on_this_thread_for_test(language);
