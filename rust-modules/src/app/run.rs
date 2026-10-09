@@ -2302,6 +2302,11 @@ pub(crate) unsafe fn update(app: &mut App, fr: &mut Frame) {
         // mounts. It raises the Metadata store's notice, since a landing that grows
         // the actions row must be drawn without waiting for a keypress.
         app.bridge.metadata_pump_alt_sources();
+        // A landing happens before LG presents its first video frame. Observe Hue on
+        // every frame, including frames with no new play result and after leaving Player.
+        let player_page = matches!(app.route(), AppArg::Player);
+        let failed = matches!(plx_media::player::state(&app.player.session), plx_media::player::PlaybackState::Error);
+        app.hue.tick(super::clock::now(), player_page, app.window_activity.allow_present(true), plx_media::player::seen_frame(), failed);
 }
 
 /// What a landed play does once its resume is settled: the Load, and the off-route backstop. Reached
@@ -2352,9 +2357,6 @@ fn finish_landed_play(app: &mut App, resume_prepared: bool) {
             }
         }
     }
-    let player_page = matches!(app.route(), AppArg::Player);
-    let failed = matches!(plx_media::player::state(&app.player.session), plx_media::player::PlaybackState::Error);
-    app.hue.tick(super::clock::now(), player_page, app.window_activity.allow_present(true), plx_media::player::seen_frame(), failed);
 }
 
 /// The draw phase, entered only on a presenting frame: `clear_opaque_region` at entry, the
@@ -3227,6 +3229,35 @@ mod lifecycle_regression_tests {
             },
             vec![],
         );
+    }
+
+    #[test]
+    fn hue_observes_late_first_picture_and_exit_without_another_play_landing() {
+        use std::sync::atomic::Ordering::Relaxed;
+        let _serial = plx_base::testlock::serial();
+        let mut app = app();
+        super::super::bridge::show_page(&mut app.pages, AppArg::Player);
+        frame(&mut app, 0);
+        app.hue.arm(true, 0);
+        super::super::clock::set_replay(0);
+        let mut fr = Frame::begin(&app.player.session, app.bridge.metadata_view());
+        unsafe { update(&mut app, &mut fr); }
+        assert!(!app.hue.started_for_test());
+
+        // No pending PMS result: LG presents its first picture AFTER the Load landed.
+        plx_media::player::SHARED.seen_frame.store(true, Relaxed);
+        super::super::clock::set_replay(16);
+        fr.now = 16;
+        unsafe { update(&mut app, &mut fr); }
+        assert!(app.hue.started_for_test(), "a later video frame must start Hue without another landing");
+
+        super::super::bridge::show_page(&mut app.pages, AppArg::Home);
+        frame(&mut app, 32);
+        super::super::clock::set_replay(32);
+        fr.now = 32;
+        unsafe { update(&mut app, &mut fr); }
+        assert!(!app.hue.started_for_test(), "leaving Player must release Hue without another landing");
+        plx_media::player::SHARED.reset_session();
     }
 
     fn event(app: &mut App, fr: &mut Frame, et: u32) {

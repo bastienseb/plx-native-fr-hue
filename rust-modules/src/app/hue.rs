@@ -35,14 +35,25 @@ impl Policy {
 }
 
 impl Session {
+    #[cfg(all(test, feature = "hostsim"))]
+    pub(super) fn started_for_test(&self) -> bool {
+        self.policy.as_ref().is_some_and(|policy| policy.started)
+    }
+
     pub(crate) fn arm(&mut self, enabled: bool, now: u32) {
         self.stop();
         if enabled {
+            #[cfg(not(test))]
+            plx_base::eventlog::log("Hue: waiting for the first player picture");
             self.policy = Some(Policy { armed_at: now, entered: false, started: false });
         }
     }
 
     fn stop(&mut self) {
+        #[cfg(not(test))]
+        if self.policy.is_some() {
+            plx_base::eventlog::log("Hue: releasing playback session");
+        }
         self.policy = None;
         #[cfg(not(any(test, feature = "hostsim")))]
         if let Some(worker) = self.worker.take() {
@@ -57,6 +68,8 @@ impl Session {
             Action::Wait => {}
             Action::Stop => self.stop(),
             Action::Start => {
+                #[cfg(not(test))]
+                plx_base::eventlog::log("Hue: first player picture; requesting synchronization");
                 #[cfg(not(any(test, feature = "hostsim")))]
                 { self.worker = plx_net::hue::start(|| {
                     plx_base::eventlog::log("Hue: local synchronization unavailable; playback continues");
