@@ -339,8 +339,13 @@ fn detail_watch_activation_dispatches_the_addressed_store_effect_in_the_press_fr
     let play = dispatcher.focus().expect("Detail seats its Play control");
     dispatcher.frame_with(&mut rig, tick(2), script_key(Key::Right, tick(2)), Vec::new(),
         &mut NoTap, false);
+    let hue = dispatcher.focus().expect("RIGHT reaches the adjacent Hue control");
+    assert_ne!(hue.elem, play.elem);
+    dispatcher.frame_with(&mut rig, tick(3), script_key(Key::Right, tick(3)), Vec::new(),
+        &mut NoTap, false);
     let watch = dispatcher.focus().expect("RIGHT reaches the watch control");
     assert_ne!(watch.elem, play.elem);
+    assert_ne!(watch.elem, hue.elem);
 
     rig.stores.viewstate.borrow_mut().hold_inflight_for_test(sid, "held");
     let instance = dispatcher.nav.top_page().and_then(|entry| entry.inst.as_ref())
@@ -348,7 +353,7 @@ fn detail_watch_activation_dispatches_the_addressed_store_effect_in_the_press_fr
     dispatcher.emit(MachineId::Nav, Fx::Deliver(MachineId::Instance(instance),
         Delivery::Screen(ScreenEvent::Activate(watch.elem))));
     let mut tap = ViewStateDispatch { sid, app_effects: 0, store_deliveries: 0 };
-    dispatcher.frame_with(&mut rig, tick(3), Vec::new(), Vec::new(), &mut tap, false);
+    dispatcher.frame_with(&mut rig, tick(4), Vec::new(), Vec::new(), &mut tap, false);
 
     assert_eq!((tap.app_effects, tap.store_deliveries), (1, 1),
         "the Detail effect must cross the addressed Bridge store delivery exactly once");
