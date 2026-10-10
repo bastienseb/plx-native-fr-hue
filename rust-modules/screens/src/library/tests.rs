@@ -1679,9 +1679,11 @@ fn the_pages_focus_groups_keep_their_ids_order_and_first_seat() {
     let session = plx_plex::plex::session::TempSession::new("library-group-order");
     session.watching("u-library-group-order");
     let mut fixture = Fixture::shelves(&["movie.inprogress.1", "movie.recentlyadded.1"], 5);
-    let stores = fixture.stores.as_ref().unwrap();
-    stores.browse.borrow_mut().set_pinned_for_test(1, true);
-    stores.capture_browse(&mut fixture.directory);
+    let mut sections = fixture.directory.view().sections().to_vec();
+    for section in &mut sections {
+        section.row.pinned = section.kind == SecKind::Movie;
+    }
+    fixture.directory = plx_data::browse::view::DirectorySnapshot::fixture(2, 0, sections);
     let page = fixture.screen();
     let mut groups = Vec::new();
     page.groups(&fixture.cx(None), &mut groups);
