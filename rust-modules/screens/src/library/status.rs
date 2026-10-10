@@ -25,7 +25,7 @@ impl LibraryScreen {
         // (`glyph_ceiling`'s own doc). At the current anchor it never does; the ceiling is a guard. `self.libraries` empty is exactly the condition `draw_library_controls` itself
         // uses to skip drawing the strip at all.
         if !self.libraries.is_empty() {
-            overlay = overlay.glyph_ceiling(CONTENT_TOP + StatusOverlay::CTRL_H);
+            overlay = overlay.glyph_ceiling(layout::LIBRARY_BOTTOM);
         }
         if let Some(reason) = reason { overlay = overlay.reason(reason); }
         if self.readout == Readout::Failed {

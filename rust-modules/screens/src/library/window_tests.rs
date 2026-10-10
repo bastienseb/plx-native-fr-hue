@@ -115,10 +115,29 @@ fn grid_reveal_keeps_focused_art_clear_of_both_fixed_navigation_rows() {
     let _guard = plx_base::testlock::serial();
     let fixture = libraries(3);
     let mut page = fixture.screen();
-    let key = page.key(page.pair.detail.elem_at(30).unwrap());
+    let key = page.key(page.pair.detail.elem_at(12).unwrap());
     page.relayout(Some(key));
-    page.scroll_target = page.target_layout.row_reveal(5);
+    page.scroll_target = page.target_layout.row_reveal(2);
     let placed = page.place(&key.elem, &fixture.cx(Some(key)), At::SpringTarget).unwrap();
     assert!(placed.rect.y >= layout::LIBRARY_BOTTOM);
     assert!(placed.clip.y >= layout::LIBRARY_BOTTOM);
+}
+
+#[test]
+fn wheel_on_a_library_moves_horizontally_without_scrolling_the_catalog() {
+    let _guard = plx_base::testlock::serial();
+    let fixture = libraries(3);
+    let mut page = fixture.screen();
+    page.scroll_target = 700.0;
+    let current = page.key(page.libraries[0].0);
+    let next = page.key(page.libraries[1].0);
+    let mut out = Vec::new();
+    let mut present = plx_machine::present::Present::new();
+    page.step(&ScreenEvent::Input(InputEvent { at: Tick::default(), source: Source::Script,
+        kind: InputKind::Wheel { dy: -1.0 } }), &fixture.cx(Some(current)),
+        &mut Effects::new(&mut out, MachineId::Instance(InstanceId(19)), &mut present));
+    assert_eq!(page.scroll_target, 700.0);
+    assert!(out.iter().any(|effect| matches!(&effect.fx,
+        Fx::Deliver(_, Delivery::Screen(ScreenEvent::Enter(Enter::Fresh {
+            focus: FocusTarget::Elem(key) }))) if *key == next)));
 }

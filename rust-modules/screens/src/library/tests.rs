@@ -1408,27 +1408,15 @@ fn shelf_publication_request_distinguishes_page_fade_from_grid_fade_and_head_foc
     assert_eq!(request(&mut page), (true, false), "only the full-page fade permits publication away from the head");
 }
 
-/// **The page glyph and the Library's own live tab strip never overlap.** They used to (measured
-/// 254-216 = 38px, `status.rs`'s own comment: "the Library keeps its chrome live ABOVE the
-/// read-out" while the glyph box sat fixed at 216..328, anchor 372) whenever a failed section's
-/// page still carried other, populated tabs; with the anchor at 540 the natural box starts at 384,
-/// clear of the strip with room to spare. `status_overlay` still passes `glyph_ceiling` at the tab strip's
-/// bottom (`CONTENT_TOP..CONTENT_TOP+CTRL_H` = library/layout's `CONTENT_TOP` =
-/// `ui::consts::GRID_TOP_Y` = 194, height `StatusOverlay::CTRL_H` = 60, so screen y 194..254)
-/// whenever `self.libraries` — the tabs — is non-empty, and `StatusOverlay::glyph_rect` would shrink
-/// the glyph box to clear it rather than let the two overlap. At this anchor it never has to: with
-/// or without a live strip the glyph draws at its natural, unshrunk 384..496 box.
+/// The status glyph stays clear of the fixed library row, including failed sections.
 #[test]
 fn the_page_glyph_and_the_librarys_live_tab_strip_never_overlap() {
     use plx_ui::widgets::StatusOverlay;
     let _guard = plx_base::testlock::serial();
-    let tab_strip_bottom = CONTENT_TOP + StatusOverlay::CTRL_H;
-    assert_eq!(tab_strip_bottom, 254.0, "the tab strip band moved — re-measure the fix against it");
+    let tab_strip_bottom = layout::LIBRARY_BOTTOM;
+    assert!(tab_strip_bottom < CONTENT_TOP + StatusOverlay::CTRL_H);
 
-    // A live strip: two pinned sections of the current kind. `favorite_sections_for` only
-    // populates `self.libraries` for 2+ candidates (see
-    // `favorite_library_row_uses_shared_strip_geometry_and_incoming_type` above; a single
-    // favourite clears it), so this is the minimal fixture that actually turns the strip on.
+    // Two libraries of the current kind are the smallest live selector.
     let sid = plx_plex::plex::ServerId::from_raw(0);
     let sections = vec![
         plx_data::browse::view::SectionView { sid: Some(sid), key: 1, kind: SecKind::Movie,

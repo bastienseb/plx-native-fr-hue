@@ -505,7 +505,8 @@ mod tests {
         assert!((lay.cell_x(lay.cols() - 1) + lay.card_w() - GRID_RIGHT).abs() < 0.01);
         assert!((lay.card_w() / lay.card_h() - RowStyle::EPISODE.w / RowStyle::EPISODE.h).abs() < 0.001);
         assert!(lay.grid_pitch() < GRID_PITCH);
-        assert_eq!(lay.row_reveal(8), lay.grid_top() + 8.0 * lay.grid_pitch());
+        assert_eq!(lay.row_reveal(8), lay.grid_top() + 8.0 * lay.grid_pitch() - lay.header_clearance());
+        assert_eq!(lay.row_y(8, lay.row_reveal(8)), LIBRARY_BOTTOM + plx_ui::consts::TITLE_DY);
         let last = lay.row_reveal(39);
         assert!(lay.row_y(39, last) + lay.grid_pitch() <= SCR_H - MARGIN_Y + 0.01);
         let (lo, hi) = lay.visible_rows(lay.row_reveal(8));

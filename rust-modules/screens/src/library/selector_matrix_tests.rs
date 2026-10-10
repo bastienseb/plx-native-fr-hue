@@ -21,7 +21,7 @@ fn section(source: plx_plex::plex::ServerId, key: i64, index: usize, title: &str
 }
 
 /// **The headline case.** `DirectorySnapshot::capture_from` copies the section table with no
-/// tier/state filter, and `LibraryScreen::sync` (mod.rs) filters favourites on `sid.is_some()`
+/// tier/state filter, and `LibraryScreen::sync` (mod.rs) filters libraries on type and `sid.is_some()`
 /// alone — neither a source's connection tier nor its probe state reaches the selector at all.
 /// So every `Location` (plus "no tier yet", `None`) crossed with every `SourceState` — 4x5 = 20
 /// cells — must draw the SAME outcome: no selector at F=1, and at F=2 exactly two pills whose
@@ -181,7 +181,7 @@ fn two_owned_servers_with_the_same_library_title_draw_two_identical_pills() {
 }
 
 /// A favourite whose source has gone `SourceState::Unreachable` stays counted and stays listed —
-/// `sync` (mod.rs) filters favourites on `sid.is_some()` and `pinned` only, never on the source's
+/// `sync` (mod.rs) filters libraries on type and `sid.is_some()` only, never on the source's
 /// last dial. The pill itself carries no status cue for it (unlike the Sources overflow menu's
 /// header accessory, which leads with the state word: `appkit/source_list.rs:150-173`'s `accessory`),
 /// so a dead favourite reads on the strip exactly like a live one.

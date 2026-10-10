@@ -324,6 +324,11 @@ not built, the strip has three pills, the headings carry no annotation.
 **People in content, machines in settings.** The handle (`friend`) on every browsing surface; the
 machine name (`nas-home`) only in the Sources list and the failure read-out.
 
+**Personal FR/Hue override:** the A picker described below is the upstream design record.
+This fork replaces it with a fixed, horizontally scrolling strip of every granted library
+of the current type, including unpinned libraries; no `MORE` pill is drawn. Favourite settings
+still control Home shelves. See `fr-hue-personnel.md` for this fork's navigation.
+
 - **A — the Sources list is reached through the library pill strip's `MORE` pill**, not a row in
   the account popover. Zero or one eligible library draws no selector at all, for every profile,
   owned or borrowed; two or more draw the strip, with a `MORE` pill once the row overflows, and

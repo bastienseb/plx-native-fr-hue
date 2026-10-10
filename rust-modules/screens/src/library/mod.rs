@@ -1136,6 +1136,16 @@ impl LibraryScreen {
                     return Handled::Yes;
                 }
                 if let InputKind::Wheel { dy } = input.kind {
+                    if let Some(key) = cx.focus.current.filter(|key| key.entry == self.entry
+                        && self.libraries.iter().any(|(elem, _)| *elem == key.elem)) {
+                        let dir = if dy < 0.0 { Dir::Right } else { Dir::Left };
+                        if dy != 0.0 {
+                            if let Step::Move(next) = self.neighbour(key, dir, cx) {
+                                self.reseat(FocusTarget::Elem(next), fx);
+                            }
+                        }
+                        return Handled::Yes;
+                    }
                     self.scroll_target = (self.scroll_target - dy * self.layout.grid_pitch())
                         .clamp(0.0, self.target_layout.max_scroll());
                     fx.invalidate(Provenance::Input);
