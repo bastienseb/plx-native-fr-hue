@@ -17,14 +17,15 @@ fn libraries(count: usize) -> Fixture {
 }
 
 #[test]
-fn every_library_including_unpinned_is_directly_reachable_without_more() {
+fn every_enabled_favourite_is_directly_reachable_without_more() {
     let _guard = plx_base::testlock::serial();
     let fixture = libraries(24);
     let page = fixture.screen();
-    assert_eq!(page.libraries.len(), 24);
+    assert_eq!(page.libraries.len(), 12);
+    assert_eq!(page.libraries.iter().map(|(_, index)| *index).collect::<Vec<_>>(), (0..24).step_by(2).collect::<Vec<_>>());
     assert!(!page.libraries.iter().any(|(elem, _)| *elem == MORE));
     let cx = fixture.cx(None);
-    for i in 0..23 {
+    for i in 0..page.libraries.len() - 1 {
         assert!(matches!(page.neighbour(page.key(page.libraries[i].0), Dir::Right, &cx),
             Step::Move(key) if key.elem == page.libraries[i + 1].0));
         assert!(matches!(page.neighbour(page.key(page.libraries[i + 1].0), Dir::Left, &cx),
@@ -59,7 +60,7 @@ fn horizontal_scroll_reveals_the_last_library_and_clips_hidden_pointer_targets()
     let _guard = plx_base::testlock::serial();
     let fixture = libraries(24);
     let mut page = fixture.screen();
-    let elem = page.libraries[23].0;
+    let elem = page.libraries.last().unwrap().0;
     let key = page.key(elem);
     let cx = fixture.cx(Some(key));
     let target = page.library_scroll_target(&cx, &page.library_lays(&cx));
@@ -82,7 +83,7 @@ fn horizontal_motion_reports_damage_while_travelling_and_rests_when_settled() {
     let _guard = plx_base::testlock::serial();
     let fixture = libraries(24);
     let mut page = fixture.screen();
-    let cx = fixture.cx(Some(page.key(page.libraries[23].0)));
+    let cx = fixture.cx(Some(page.key(page.libraries.last().unwrap().0)));
     let target = page.library_scroll_target(&cx, &page.library_lays(&cx));
     let (_, moving) = plx_machine::idle::scoped_motion(|| page.library_scroll.step(target, K_SCROLL, 1.0 / 60.0));
     assert!(moving);

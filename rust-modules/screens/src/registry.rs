@@ -2091,7 +2091,9 @@ pub const SCREEN_SHAPES: &[&str] = &[
 // 0xbc1d_d51d_5b11_1273.
 // Fixed Library header: its horizontal carousel adds a scroll spring to LibraryChrome.
 // The previous pin was 0xdb39_f424_a0be_5fd2.
-const SCREEN_SHAPES_PIN: u64 = 0xf190_fc85_672a_4a58;
+// Version rows add their selected Part identity to the existing choice panel.
+// Previous pin: 0xf190_fc85_672a_4a58.
+const SCREEN_SHAPES_PIN: u64 = 0x434400a974c2a8aa;
 
 #[cfg(test)]
 mod arg_tests {

@@ -1440,6 +1440,8 @@ fn convert_ratings(it: &plx_plex::plex::Metadata) -> Vec<Rating> {
     out
 }
 
+fn media_index_is_default(index: &i64) -> bool { *index == 0 }
+
 /// One file version, retaining its original Media[] index for all server requests.
 #[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MediaVersion {
@@ -1529,9 +1531,9 @@ pub struct Detail {
     pub dur_ms: i64,
     pub resume_ms: i64, // viewOffset (0 = not partially watched) — the resume position
     pub watched: bool,  // movie: viewCount ≥ 1; show: viewedLeafCount ≥ leafCount
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub versions: Vec<MediaVersion>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "media_index_is_default")]
     pub media_index: i64,
     pub part: String,   // Selected Media.Part[0].key for a leaf (movie/episode); empty for a show
     pub vcodec: String, // Media[0].videoCodec (drives the direct-play/transcode decision)
