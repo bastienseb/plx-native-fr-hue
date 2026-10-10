@@ -194,8 +194,9 @@ impl LibraryScreen {
             || !document_band_visible(p, y, plx_ui::widgets::StatusOverlay::CTRL_H, pop) { return; }
         // Repaint the page's own ground above the scrolling artwork, then clip both paint
         // and pointer stops to the same fixed horizontal viewport.
-        let header = Rect::new(0.0, plx_ui::widgets::TOP_BAR_BOTTOM, SCR_W,
-            layout::LIBRARY_BOTTOM - plx_ui::widgets::TOP_BAR_BOTTOM);
+        // The main navigation is composed over this page afterwards. Keep its ground clear
+        // too: the grid's native artwork can extend beyond its logical pointer clip.
+        let header = Rect::new(0.0, 0.0, SCR_W, layout::LIBRARY_BOTTOM);
         {
             let _clip = f.clip(f.painter, header);
             f.painter.alpha(f.page_alpha).rect(header, 0.0, theme::SURFACE_APP, theme::SURFACE_APP, 0.0);
