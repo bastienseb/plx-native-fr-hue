@@ -46,7 +46,10 @@ fn a_pill_arrival_pops_its_head_tile_after_the_page_is_opaque_not_under_the_diss
             rig.stores.browse.borrow_mut()
                 .seed_shelves_for_test(0, &["movie.inprogress.1", "tv.recentlyreleased.1"], 3);
         }
-        frame(&mut d, &mut rig, AppArg::Library, tick(i), vec![]);
+        // All libraries now occupy the first focus row, including the unpinned shared one.
+        // Descend into the first shelf while the page is still arriving.
+        let inputs = if i == 21 { script_key(Key::Down, tick(i)) } else { vec![] };
+        frame(&mut d, &mut rig, AppArg::Library, tick(i), inputs);
         if let (alpha, Some(pop)) = arrival(&d) { timeline.push((i, alpha, pop)); }
     }
     assert!(!timeline.is_empty(), "the head tile never took focus");

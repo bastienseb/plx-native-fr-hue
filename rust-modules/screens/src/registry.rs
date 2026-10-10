@@ -2089,7 +2089,9 @@ pub const SCREEN_SHAPES: &[&str] = &[
 // Person adopts `cards::Stack` (cards-stack PR 5): its logical state gains the stack's motion canon
 // (`stack:Stack{scroll,target,sections}`), the same as Collection's; the previous pin was
 // 0xbc1d_d51d_5b11_1273.
-const SCREEN_SHAPES_PIN: u64 = 0xdb39_f424_a0be_5fd2;
+// Fixed Library header: its horizontal carousel adds a scroll spring to LibraryChrome.
+// The previous pin was 0xdb39_f424_a0be_5fd2.
+const SCREEN_SHAPES_PIN: u64 = 0xf190_fc85_672a_4a58;
 
 #[cfg(test)]
 mod arg_tests {

@@ -381,14 +381,18 @@ fn rail_eligibility_and_last_producer_hold_over_a_long_shelf() {
     engine.set(OWNER, grid, Some(page.pair.groups_config().detail), By::Restore);
     let cx = fixture.cx(Some(grid));
     page.pair.master.advance(&cx, Some(0), true, 0.05);
-    let rail = page.key(page.pair.master.elems[0]);
-    let placed = page.place(&rail.elem, &cx, At::Drawn).unwrap();
-    assert!(placed.clip.h > 0.0);
     let mut draw = DrawFrame::new(&cx, plx_ui::Painter::root());
     page.record_stops(&mut draw);
     let stops = draw.into_stops();
-    assert!(stops.iter().any(|stop| region_of_elem(stop.key.elem) == Some(KeyRegion::Shelf)
-        && stop.rect.intersect(stop.clip).contains(placed.rect.cx(), placed.rect.cy())), "the producer-order assertion needs actual overlap");
+    // The fixed header pushes the shelf below the rail's first letter. Pick a real visible
+    // overlap rather than assuming the first letter stands over that shelf.
+    let (rail, placed) = page.pair.master.elems.iter().find_map(|elem| {
+        let placed = page.place(elem, &cx, At::Drawn)?;
+        let visible = placed.rect.intersect(placed.clip);
+        (visible.h > 0.0 && stops.iter().any(|stop| region_of_elem(stop.key.elem) == Some(KeyRegion::Shelf)
+            && stop.rect.intersect(stop.clip).contains(placed.rect.cx(), placed.rect.cy())))
+            .then(|| (page.key(*elem), placed))
+    }).expect("the producer-order assertion needs actual overlap");
     let mut hit = plx_ui::hit::HitMap::new();
     hit.fill(stops); hit.swap();
     assert_eq!(hit.top_at(placed.rect.cx(), placed.rect.cy()).map(|stop| stop.key), Some(rail),
@@ -1588,13 +1592,14 @@ fn the_runs_equal_a_fresh_recompute_after_every_kind_of_change() {
     assert_eq!(page.run.len(), 0);
 }
 
+/// With fixed libraries, BACK reaches their row without scrolling the catalog. Without them,
 /// BACK from deep in the document returns to the top on the scroll SPRING, the way Home's BACK
 /// glides its page back to the hero — it must not snap. The reseat BACK raises arrives as
 /// `By::Restore`, and `reveal` used to treat every `Restore` as "the saved viewport": it jumped the
 /// spring onto its target even when no viewport had been saved, so BACK on Movies and TV Shows cut
 /// to the head while Home animated.
 #[test]
-fn back_to_the_top_glides_on_the_scroll_spring_instead_of_snapping() {
+fn back_reaches_fixed_libraries_or_glides_to_the_top_without_snapping() {
     let _guard = plx_base::testlock::serial();
     assert_back_glides(&Fixture::new(), 35);
     let session = plx_plex::plex::session::TempSession::new("library-back-glide");
@@ -1634,8 +1639,17 @@ fn assert_back_glides(fixture: &Fixture, deep_index: usize) {
             moved = true;
         }
     }
-    assert!(moved, "BACK must move focus to the head of the page");
-    assert_eq!(page.scroll_target, 0.0, "BACK targets the top");
+    assert!(moved, "BACK must move focus to the page navigation");
+    if !page.libraries.is_empty() {
+        assert_eq!(engine.current(OWNER).map(|key| key.elem), Some(page.libraries[0].0));
+        assert_eq!(page.scroll_target, deep_scroll, "the fixed header is reachable without losing the catalog position");
+        for frame in 0..120 {
+            deliver(&mut page, &mut engine, fixture, ScreenEvent::Tick(Tick { ms: frame * 16, dt_us: 16_000 }));
+        }
+        assert_eq!(page.scroll.pos, deep_scroll, "the catalog stays in place after the header takes focus");
+        return;
+    }
+    assert_eq!(page.scroll_target, 0.0, "without a library strip BACK targets the top");
     assert_eq!(page.scroll.pos, deep_scroll, "the spring has not been teleported onto its target");
 
     // …and the spring then carries it there over frames, monotonically.
@@ -1654,9 +1668,9 @@ fn assert_back_glides(fixture: &Fixture, deep_index: usize) {
 }
 
 /// **The page's focus groups are the base's, adopted shelves or not.** Their ids come from the key
-/// registry (sequential per kind, never from a position), their order is the document's
-/// (shelves in publication order, then the heading row, then the grid), the page's first seat is
-/// the first shelf and a shelf's elements keep their published order. A shelf drawn by
+/// registry (sequential per kind, never from a position), their order follows the fixed library
+/// navigation, then the document (shelves, heading row, grid). The first seat is the library
+/// navigation and a shelf's elements keep their published order. A shelf drawn by
 /// `cards::Shelf` must not renumber, reorder or reseat any of it.
 #[test]
 fn the_pages_focus_groups_keep_their_ids_order_and_first_seat() {
@@ -1668,14 +1682,14 @@ fn the_pages_focus_groups_keep_their_ids_order_and_first_seat() {
     let mut groups = Vec::new();
     page.groups(&fixture.cx(None), &mut groups);
     let ids: Vec<u32> = groups.iter().map(|group| group.id.0).collect();
-    assert_eq!(ids, [0x2500_0003, 0x2500_0004, 0x2500_0002, 0x2500_0001],
-        "shelf 0, shelf 1, the heading row, the grid");
-    assert_eq!(groups.iter().map(|group| group.len).collect::<Vec<_>>(), [5, 5, 3, 120]);
+    assert_eq!(ids, [LIBRARY_GROUP.0, 0x2500_0003, 0x2500_0004, 0x2500_0002, 0x2500_0001],
+        "fixed libraries, shelf 0, shelf 1, the heading row, the grid");
+    assert_eq!(groups.iter().map(|group| group.len).collect::<Vec<_>>(), [2, 5, 5, 3, 120]);
     assert_eq!(page.shelves.iter().map(|row| row.group.0).collect::<Vec<_>>(), [0x2500_0003, 0x2500_0004]);
     assert_eq!(page.shelves[0].elems, [0x2200_0000, 0x2200_0001, 0x2200_0002, 0x2200_0003, 0x2200_0004]);
     assert_eq!(page.shelves[1].elems, [0x2200_0005, 0x2200_0006, 0x2200_0007, 0x2200_0008, 0x2200_0009]);
-    assert_eq!(page.first_group(), page.shelves[0].group, "the page seats on its first shelf");
-    for (row, group) in page.shelves.iter().zip(&groups) {
+    assert_eq!(page.first_group(), LIBRARY_GROUP, "the page seats on its fixed library navigation");
+    for (row, group) in page.shelves.iter().zip(groups.iter().skip(1)) {
         assert!(matches!(group.kind, GroupKind::Row { wrap: false }) && group.seat == Seat::Remembered);
         assert_eq!(page.row_elems(Some(row.group)), row.elems);
         for elem in &row.elems {

@@ -85,7 +85,9 @@ fn push_trace(case: Case) -> Vec<Row> {
     }
     let mut rows = Vec::new();
     nav_tab(&mut d, &mut rig, tab, None, None);
-    for _ in 0..22 {
+    // The fixed library strip also settles its capsules before the replacement capture.
+    // Cover the documented 600 ms quiescence bound, then verify the hand-over below.
+    for _ in 0..90 {
         step(&mut d, &mut rig, Some(&mut rows));
     }
     assert!(d.top_arg() == Some(&AppArg::Library), "premise: the push committed");
@@ -108,7 +110,8 @@ fn a_warm_library_push_captures_the_pressed_library_with_its_tiles() {
         let (page, grid, loading, section, tiles) = rows[at].content.unwrap();
         // Every frame the floor image is what is on screen: up to the settled replacement.
         let shown = 1 + rows[at + 1..].iter().take_while(|r| !r.captured && r.image.is_some()).count();
-        let (.., then_section, then_tiles) = rows[at + shown].content.unwrap();
+        let (.., then_section, then_tiles) = rows.get(at + shown)
+            .expect("the floor image must hand over within the bounded trace").content.unwrap();
         if loading || tiles == 0 || page * grid < 0.99 || section != 1 {
             bad.push(format!("{case:?}: the floor image shows section {section} with {tiles} tiles (loading={loading}, fade {:.2}) for {shown} frames, then section {then_section} with {then_tiles} tiles in one frame", page * grid));
         }

@@ -306,7 +306,7 @@ impl Layout {
     /// pushes rows further down, so the document's head shows no more than this either.
     #[cfg(any(test, feature = "devtriggers"))]
     pub(super) fn rows_per_screen(&self) -> usize {
-        ((SCR_H - CONTENT_TOP) / self.grid_pitch()).ceil() as usize
+        ((SCR_H - CONTENT_TOP - self.header_clearance()) / self.grid_pitch()).ceil() as usize
     }
 
     pub(super) fn visible_rows(&self, scroll: f32) -> (usize, usize) {

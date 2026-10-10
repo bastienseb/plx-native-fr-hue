@@ -562,7 +562,7 @@ impl LibraryScreen {
             row.elems.contains(&key.elem) || row.heading_elem() == Some(key.elem)) {
             Some(self.target_layout.shelf_reveal(&self.target_run, index))
         } else if matches!(key.elem, TYPE | SORT | FILTER) {
-            Some(self.target_layout.grid_block_top().clamp(0.0, self.target_layout.max_scroll()))
+            Some(self.target_layout.row_reveal(0))
         } else if key.elem == RETRY {
             Some(0.0)
         } else { None };
