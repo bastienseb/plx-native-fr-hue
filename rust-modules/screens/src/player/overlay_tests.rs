@@ -769,7 +769,6 @@ fn ok_on_the_dim_timing_row_while_off_keeps_the_panel_open() {
 /// "yours" (`subtitle_yours_langs`), so English subtitles are rows on the Subtitles root, not behind
 /// "Other languages".
 fn english_audio_with_subs(ps: &plx_media::route::PlaybackSession, subs: Vec<plx_data::metadata::Stream>) -> plx_data::metadata::PlayingItem {
-        media_index: 0, part: String::new(),
     let mut item = plx_data::metadata::PlayingItem::with_subs(subs);
     item.audio = vec![plx_data::metadata::Stream {
         id: plx_media::route::cur_audio_sid(ps),
