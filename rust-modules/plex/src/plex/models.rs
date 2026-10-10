@@ -445,8 +445,8 @@ impl Metadata {
     /// what every caller here actually reads. An item can carry SEVERAL `Media[]` versions
     /// (docs/pms-api.md §4; the dev library really does — one episode ships a 4k and a 1080
     /// version, another two 4k versions at different bitrates), and picking among them by
-    /// codec/resolution needs a version picker this client does not have yet. So anything derived
-    /// from this describes **version 0**, and a UI that shows it should be read that way.
+    /// codec/resolution is handled by the detail page's Version picker. This helper itself
+    /// always describes **version 0**; selected-file readers use the chosen Media[] entry.
     /// [`first_part`](Self::first_part) carries the same caveat.
     pub fn primary_media(&self) -> Option<&Media> {
         self.media.first()

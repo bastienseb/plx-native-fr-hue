@@ -3809,3 +3809,25 @@ fn the_hold_hint_stands_on_a_resting_related_card_once_per_run() {
     assert!(!screen.hold_hint.visible(), "and not a second time on a Detail page this run");
     clear();
 }
+
+#[test]
+fn version_is_fifth_and_selected_leaf_is_used_by_play_resume_and_hue() {
+    let _guard = install(Detail {
+        sid: ServerId::UNSET, rk: "multi".into(), kind: "episode".into(),
+        title: "Episode".into(), part: "/library/parts/second/file.mkv".into(),
+        vcodec: "hevc".into(), acodec: "eac3".into(), media_index: 1,
+        versions: vec![Default::default(), Default::default()],
+        resume_ms: 60_000, dur_ms: 3_600_000, ..Default::default()
+    });
+    let mut screen = bare(&_guard, ServerId::UNSET, "multi");
+    let set = screen.hero_set(test_store().view());
+    assert_eq!(hero::ctl_at(set, 4), Some(hero::HeroCtl::Alt));
+    for (elem, hue, resume) in [(hero::ELEM_PLAY, false, 60_000_000_000), (hero::ELEM_PLAY_HUE, true, 60_000_000_000), (hero::ELEM_RESTART, false, 0)] {
+        let (_, effects) = step(&mut screen, &ScreenEvent::Activate(elem), Some(elem));
+        let (play, offset) = play_item(&effects).unwrap();
+        assert_eq!(offset, resume);
+        let inner = if hue { let PlayIntent::WithHue(inner) = play else { panic!("Hue wrapper missing") }; inner.as_ref() } else { play };
+        assert!(matches!(inner, PlayIntent::Item { part, vcodec, acodec, .. } if part == "/library/parts/second/file.mkv" && vcodec == "hevc" && acodec == "eac3"));
+    }
+    clear();
+}

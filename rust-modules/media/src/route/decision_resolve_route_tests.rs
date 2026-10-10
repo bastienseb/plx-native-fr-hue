@@ -1655,6 +1655,7 @@ fn source_probe_reuses_live_hls_resource_instead_of_entering_adhoc_mde() {
     install_active_hls(active, "http://fixture.invalid/old.m3u8", rung);
     let active_route = worker_ticket();
     let control = HlsAbrControl {
+        media_index: 0,
         trace_generation: 0,
         sid,
         rating_key: "1".into(),
@@ -1756,6 +1757,7 @@ fn a_rejected_original_probe_keeps_hls_and_produces_no_capacity_observation() {
     install_active_hls(active, "http://fixture.invalid/old.m3u8", rung);
     let active_route = worker_ticket();
     let control = HlsAbrControl {
+        media_index: 0,
         trace_generation: 0,
         sid,
         rating_key: "1".into(),
@@ -1847,6 +1849,7 @@ fn a_source_sample_from_a_superseded_hls_resource_is_discarded() {
     );
     let active_route = worker_ticket();
     let control = HlsAbrControl {
+        media_index: 0,
         trace_generation: 0,
         sid,
         rating_key: "1".into(),

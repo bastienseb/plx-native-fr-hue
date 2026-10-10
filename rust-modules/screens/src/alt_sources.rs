@@ -105,7 +105,7 @@ use plx_ui::{theme, Rect};
 /// selected ROW is in it deliberately: this panel's UP/DOWN changes nothing else in the app, so
 /// without it a replay grades the panel opening and closing and nothing between.
 pub const SHAPE: [&str; 2] = [
-    "AltSourcesScreen{arg:AltSourcesArg{host:u32,sid:u32,rk:str,anchor:[u32;4]},rows:[{sid:u32,rk:str,label:str,detail:str,value:opt<str>,badge:opt<str>,checked:bool}],sel:i32,table:TableViewMotion}",
+    "AltSourcesScreen{arg:AltSourcesArg{host:u32,sid:u32,rk:str,anchor:[u32;4]},rows:[{sid:u32,rk:str,media_part:opt<str>,label:str,detail:str,value:opt<str>,badge:opt<str>,checked:bool}],sel:i32,table:TableViewMotion}",
     TableView::MOTION_SHAPE,
 ];
 
@@ -219,6 +219,7 @@ pub struct AltRow {
     pub checked: bool,
     pub sid: ServerId,
     pub rk: String,
+    pub media_part: Option<String>,
 }
 
 /// What the sub-line calls a source with no owner: the signed-in account's own server. A PERSON in
@@ -278,6 +279,7 @@ pub fn rows(list: &[AltCopy], here_sid: ServerId, here_rk: &str) -> Vec<AltRow> 
                 checked: here == Some(i),
                 sid: c.sid,
                 rk: c.rk.clone(),
+                media_part: None,
             }
         })
         .collect()
@@ -306,11 +308,15 @@ pub enum Action {
     None,
     /// Open `rk` on server `sid` — that copy's own page. Never a swap of the copy in place.
     Open { sid: ServerId, rk: String },
+    SelectVersion { sid: ServerId, rk: String, part: String },
 }
 
 /// What one row's OK means, decided once when the row is declared, so the "the row you are on is
 /// not a destination" rule is host-testable and no press ever indexes a list.
 pub fn action_for(row: &AltRow, here_sid: ServerId, here_rk: &str) -> Action {
+    if let Some(part) = &row.media_part {
+        return if row.checked { Action::None } else { Action::SelectVersion { sid: row.sid, rk: row.rk.clone(), part: part.clone() } };
+    }
     if plx_plex::plex::same_item((row.sid, &row.rk), (here_sid, here_rk)) || row.rk.is_empty() {
         return Action::None;
     }
@@ -328,6 +334,7 @@ pub struct AltId {
     sid: ServerId,
     rk: String,
     nth: usize,
+    media_part: Option<String>,
 }
 
 impl AltId {
@@ -335,7 +342,7 @@ impl AltId {
     fn of(rows: &[AltRow], pos: usize) -> Self {
         let r = &rows[pos];
         let nth = rows[..pos].iter().filter(|o| o.sid == r.sid && o.rk == r.rk).count();
-        AltId { sid: r.sid, rk: r.rk.clone(), nth }
+        AltId { sid: r.sid, rk: r.rk.clone(), nth, media_part: r.media_part.clone() }
     }
 }
 
@@ -393,11 +400,21 @@ impl AltSourcesScreen {
     /// tick at all** — owner-reported. The tick answers "which of these am I looking at", and only
     /// the page knows; since phase 10 it says so on the argument.
     fn live_rows(&self, meta: plx_data::metadata::MetadataView<'_>) -> Vec<AltRow> {
-        rows(
-            meta.alt_copies(self.arg.sid, &self.arg.rk),
-            self.arg.sid,
-            &self.arg.rk,
-        )
+        let mut copies = rows(meta.alt_copies(self.arg.sid, &self.arg.rk), self.arg.sid, &self.arg.rk);
+        if let Some(d) = meta.current().filter(|d| !d.is_show && d.versions.len() > 1
+            && plx_plex::plex::same_item((d.sid, &d.rk), (self.arg.sid, &self.arg.rk))) {
+            copies.retain(|r| !plx_plex::plex::same_item((r.sid, &r.rk), (d.sid, &d.rk)));
+            let mut local: Vec<_> = d.versions.iter().map(|v| AltRow {
+                label: format!("{} · {} · {}", plx_ui::fmt::resolution(&v.resolution, v.width, v.height).unwrap_or_else(|| "SD".into()),
+                    plx_data::metadata::friendly_codec(&v.vcodec), plx_data::metadata::friendly_codec(&v.acodec)),
+                detail: v.file.rsplit(['/', '\\']).next().unwrap_or(&v.file).to_owned(),
+                own_detail: false, value: (v.bitrate > 0).then(|| format!("{:.1} Mb/s", v.bitrate as f64 / 1000.0)),
+                badge: None, checked: v.part == d.part, sid: d.sid, rk: d.rk.clone(), media_part: Some(v.part.clone()),
+            }).collect();
+            local.extend(copies);
+            return local;
+        }
+        copies
     }
 
     /// Materialise the store into the table, when and only when the drawn content would differ.
@@ -454,6 +471,12 @@ impl AltSourcesScreen {
             _ => Action::None,
         };
         self.dismiss(fx);
+        if let Action::SelectVersion { sid, rk, part } = &action {
+            fx.push(Fx::App(crate::registry::AppFx::Store(plx_data::stores::StoreId::Metadata,
+                plx_data::stores::StoreCmd::Metadata(plx_data::stores::metadata::MetadataCmd::SelectVersion {
+                    sid: *sid, rk: rk.clone(), part: part.clone(),
+                }))));
+        }
         if let Action::Open { sid, rk } = action {
             // The PAGE navigates. This surface names the destination and nothing else — the
             // `LibraryMenu` shape, and what keeps "what a press means on the Detail page" in one
@@ -610,6 +633,7 @@ impl LogicalState for AltSourcesScreen {
         for r in &self.rows {
             c.u32(u32::from(r.sid.raw()))
                 .str(&r.rk)
+                .option(r.media_part.as_deref(), |c, part| { c.str(part); })
                 .str(&r.label)
                 .str(&r.detail)
                 .option(r.value.as_deref(), |c, v| {

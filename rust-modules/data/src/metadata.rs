@@ -1440,6 +1440,47 @@ fn convert_ratings(it: &plx_plex::plex::Metadata) -> Vec<Rating> {
     out
 }
 
+/// One file version, retaining its original Media[] index for all server requests.
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MediaVersion {
+    pub media_index: i64,
+    pub part: String,
+    pub vcodec: String,
+    pub acodec: String,
+    pub resolution: String,
+    pub width: i64,
+    pub height: i64,
+    pub bitrate: i64,
+    pub container: String,
+    pub file: String,
+    pub size: i64,
+    #[serde(with = "record::float_bits")]
+    pub aspect_ratio: f64,
+    #[serde(with = "record::float_bits")]
+    pub fps: f64,
+    pub video: Option<Stream>,
+    pub audio: Vec<Stream>,
+    pub subs: Vec<Stream>,
+    pub hdr: bool,
+    pub dovi: Dovi,
+}
+
+/// Discard entries with no playable Part but retain each original wire index.
+pub fn media_versions(it: &plx_plex::plex::Metadata) -> Vec<MediaVersion> {
+    it.media.iter().enumerate().filter_map(|(index, m)| {
+        let p = m.part.first().filter(|p| !p.key.is_empty())?;
+        let s = convert_streams(&p.stream);
+        Some(MediaVersion {
+            media_index: index as i64, part: p.key.clone(), vcodec: m.video_codec.clone(),
+            acodec: m.audio_codec.clone(), resolution: m.video_resolution.clone(),
+            width: m.width, height: m.height, bitrate: m.bitrate,
+            container: if p.container.is_empty() { m.container.clone() } else { p.container.clone() },
+            file: p.file.clone(), size: p.size, aspect_ratio: m.aspect_ratio, fps: s.fps,
+            video: s.video, audio: s.audio, subs: s.subs, hdr: s.hdr, dovi: s.dovi,
+        })
+    }).collect()
+}
+
 #[derive(Default, Clone)]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Detail {
@@ -1488,14 +1529,17 @@ pub struct Detail {
     pub dur_ms: i64,
     pub resume_ms: i64, // viewOffset (0 = not partially watched) — the resume position
     pub watched: bool,  // movie: viewCount ≥ 1; show: viewedLeafCount ≥ leafCount
-    pub part: String,   // Media[0].Part[0].key for a leaf (movie/episode); empty for a show
+    #[serde(default)]
+    pub versions: Vec<MediaVersion>,
+    #[serde(default)]
+    pub media_index: i64,
+    pub part: String,   // Selected Media.Part[0].key for a leaf (movie/episode); empty for a show
     pub vcodec: String, // Media[0].videoCodec (drives the direct-play/transcode decision)
     pub acodec: String, // Media[0].audioCodec
     #[serde(with = "record::float_bits")]
     pub video_fps: f64, // video Stream frameRate (0 = unknown); feeds the Load esInfo
     // ---- the PRIMARY version's technical fields (plex::Metadata::primary_media = Media[0], NOT a
-    // best-of pick — a multi-version item has more, and choosing among them needs a version picker
-    // that does not exist yet). For a SHOW these are borrowed from its first episode, like the
+    // best-of pick). The Version menu replaces these together with the selected Part's streams. For a SHOW these are borrowed from its first episode, like the
     // About footer's audio/subtitle lists. `bitrate`/`width`/`height` are unused by the UI today
     // and carried for the video-quality ladder ("26.1 Mbps 4K (Original)").
     pub video_resolution: String, // "4k" | "1080" | "720" | "sd" — the hero's media badge
@@ -2049,6 +2093,8 @@ fn fetch_detail(sid: plx_plex::plex::ServerId, rk: &str) -> Option<(Detail, Stri
         } else {
             it.view_count > 0
         },
+        versions: media_versions(&it),
+        media_index: 0,
         // empty for a show (no Media on the show container)
         part: it.first_part().map(|p| p.key.clone()).unwrap_or_default(),
         vcodec: media0.map(|m| m.video_codec.clone()).unwrap_or_default(),
@@ -2316,6 +2362,32 @@ mod convert_streams_tests {
 /// same version's technical fields (resolution/size/bitrate — the hero's media badge). Both ride
 /// the ONE version (see `plex::Metadata::primary_media`), and both are borrowed from a show's
 /// first episode by the same call in `fetch_item_streams`, so they can't describe different files.
+impl Detail {
+    /// Change only the file's technical facts. Item identity, watch state and resume stay intact.
+    pub fn select_version(&mut self, part: &str) -> bool {
+        let Some(v) = self.versions.iter().find(|v| v.part == part).cloned() else { return false };
+        self.media_index = v.media_index;
+        self.part = v.part;
+        self.vcodec = v.vcodec;
+        self.acodec = v.acodec;
+        self.video_resolution = v.resolution;
+        self.width = v.width;
+        self.height = v.height;
+        self.bitrate = v.bitrate;
+        self.container = v.container;
+        self.file = v.file;
+        self.size = v.size;
+        self.aspect_ratio = v.aspect_ratio;
+        self.video_fps = v.fps;
+        self.video = v.video;
+        self.audio = v.audio;
+        self.subs = v.subs;
+        self.hdr = v.hdr;
+        self.dovi = v.dovi;
+        true
+    }
+}
+
 fn parse_streams(it: &plx_plex::plex::Metadata, d: &mut Detail) {
     if let Some(m) = it.primary_media() {
         d.video_resolution = m.video_resolution.clone();
@@ -2359,6 +2431,8 @@ fn parse_streams(it: &plx_plex::plex::Metadata, d: &mut Detail) {
 
 #[derive(Clone)]
 pub struct PlayingItem {
+    pub media_index: i64,
+    pub part: String,
     /// The server the played leaf lives on. This is the store that feeds PLAYBACK — the track
     /// menu's `Stream.id`s (which are PUT back to a server), the direct-play gate's frame size, the
     /// esInfo fps, the chapters and the markers — so a bare-rk cache hit against a colliding item on
@@ -2403,6 +2477,7 @@ impl PlayingItem {
     /// overlay tests install, where nothing but the subtitle list is read.
     pub fn with_subs(subs: Vec<Stream>) -> Self {
         PlayingItem {
+            media_index: 0, part: String::new(),
             sid: plx_plex::plex::ServerId::from_raw(0),
             rk: "rk".into(),
             show_rk: String::new(),
@@ -2450,6 +2525,7 @@ fn cached_playing(state: &MetadataState, sid: plx_plex::plex::ServerId, rk: &str
     current(state)
         .filter(|d| plx_plex::plex::same_item((d.sid, &d.rk), (sid, rk)) && !d.audio.is_empty())
         .map(|d| PlayingItem {
+            media_index: d.media_index, part: d.part.clone(),
             sid,
             rk: rk.to_string(),
             show_rk: d.show_rk.clone(),
@@ -2470,10 +2546,21 @@ fn cached_playing(state: &MetadataState, sid: plx_plex::plex::ServerId, rk: &str
 /// arrive by value: `client_opt()` here would fetch whichever server is CURRENT, and a ratingKey
 /// that also exists there would come back with a different film's stream list.
 pub fn fetch_playing_item(sid: plx_plex::plex::ServerId, rk: &str) -> Option<PlayingItem> {
+    fetch_playing_item_for_part(sid, rk, "")
+}
+
+pub fn fetch_playing_item_for_part(sid: plx_plex::plex::ServerId, rk: &str, part: &str) -> Option<PlayingItem> {
     if rk.is_empty() {
         return None;
     }
     let it = plx_plex::plex::client_for(sid).and_then(|c| c.metadata(rk));
+    let chosen = it.as_ref().and_then(|it| {
+        if part.is_empty() { it.media.iter().enumerate().next() }
+        else { it.media.iter().enumerate().find(|(_, m)| m.part.first().is_some_and(|p| p.key == part)) }
+    });
+    // A missing selected version must not silently fall back to the first file.
+    if !part.is_empty() && chosen.is_none() { return None; }
+    let chosen_part = chosen.and_then(|(_, m)| m.part.first());
     // Markers and chapters hang off the ITEM, streams off its first Part — so a part-less response
     // still yields both of those instead of discarding all three. `Client::metadata` already sends
     // `includeChapters=1` (plex/library.rs), so the Chapter[] is on the wire either way: taking it
@@ -2486,10 +2573,7 @@ pub fn fetch_playing_item(sid: plx_plex::plex::ServerId, rk: &str) -> Option<Pla
         .as_ref()
         .map(|it| convert_chapters(&it.chapter))
         .unwrap_or_default();
-    let st = it
-        .as_ref()
-        .and_then(|it| it.first_part().map(|p| convert_streams(&p.stream)))
-        .unwrap_or_default();
+    let st = chosen_part.map(|p| convert_streams(&p.stream)).unwrap_or_default();
     let (audio, subs, video_fps, dovi) = (st.audio, st.subs, st.fps, st.dovi);
     let show_rk = it
         .as_ref()
@@ -2497,15 +2581,14 @@ pub fn fetch_playing_item(sid: plx_plex::plex::ServerId, rk: &str) -> Option<Pla
         .unwrap_or_default();
     // the frame size rides the same PRIMARY version the streams come from (route.rs's
     // direct-play gate tests it against the device bound — see the field doc)
-    let (width, height, bitrate) = it
-        .as_ref()
-        .and_then(|it| it.primary_media().map(|m| (m.width, m.height, m.bitrate)))
-        .unwrap_or((0, 0, 0));
+    let (width, height, bitrate) = chosen.map(|(_, m)| (m.width, m.height, m.bitrate)).unwrap_or((0, 0, 0));
     let blur = it
         .as_ref()
         .and_then(|it| it.ultra_blur_colors)
         .and_then(|u| u.corners());
     Some(PlayingItem {
+        media_index: chosen.map_or(0, |(index, _)| index as i64),
+        part: chosen_part.map(|p| p.key.clone()).unwrap_or_default(),
         sid,
         rk: rk.to_string(),
         show_rk,
@@ -3607,6 +3690,10 @@ pub fn run(state: &mut MetadataState, adapter: &std::sync::Arc<MetadataAdapter>,
         MetadataCmd::SetNowPlaying(np) => {
             set_now_playing(state, np);
             true
+        }
+        MetadataCmd::SelectVersion { sid, rk, part } => {
+            state.current.as_mut().filter(|d| plx_plex::plex::same_item((d.sid, &d.rk), (sid, &rk)))
+                .is_some_and(|d| d.select_version(&part))
         }
         MetadataCmd::SetWatchedLocal { sid, rk, on } => set_watched_local(state, sid, &rk, on),
         MetadataCmd::InstallPlaying(p) => {
@@ -5242,3 +5329,24 @@ mod credits_tests;
 #[cfg(test)]
 #[path = "metadata_demo_fixture_tests.rs"]
 mod demo_fixture_tests;
+
+#[cfg(test)]
+mod version_selection_tests {
+    use super::*;
+    #[test]
+    fn second_version_keeps_wire_index_codecs_tracks_and_resume() {
+        let it: plx_plex::plex::Metadata = serde_json::from_value(serde_json::json!({
+            "Media": [ {"Part": []}, {"videoCodec":"hevc", "audioCodec":"eac3", "videoResolution":"4k",
+                "width":3840,"height":2160,"Part":[{"key":"/library/parts/2/file.mkv","file":"film-4k.mkv",
+                "Stream":[{"streamType":2,"id":22,"index":1,"codec":"eac3","languageCode":"fra"}]}]}]
+        })).unwrap();
+        let mut d = Detail { rk: "movie".into(), resume_ms: 120_000, versions: media_versions(&it), ..Default::default() };
+        assert_eq!(d.versions.len(), 1);
+        assert!(d.select_version("/library/parts/2/file.mkv"));
+        assert_eq!(d.media_index, 1);
+        assert_eq!((&*d.vcodec, &*d.acodec, d.width, d.audio[0].id), ("hevc", "eac3", 3840, 22));
+        assert_eq!((&*d.rk, d.resume_ms), ("movie", 120_000));
+        assert!(!d.select_version("missing"));
+        assert_eq!(d.media_index, 1);
+    }
+}

@@ -184,6 +184,8 @@ pub enum MetadataCmd {
     /// The season strip: flip optimistically, fetch the episodes off-thread.
     LoadSeason(usize),
     SetNowPlaying(Option<crate::metadata::NowPlaying>),
+    /// Local file choice, addressed to the loaded leaf; never a Plex account write.
+    SelectVersion { sid: ServerId, rk: String, part: String },
     /// The optimistic half of a view-state write on the loaded item, its episodes and Related.
     SetWatchedLocal { sid: ServerId, rk: String, on: bool },
     /// The playback plan's leaf (`route.rs`).

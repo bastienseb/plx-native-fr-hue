@@ -399,6 +399,7 @@ pub(super) fn fourk_item_with_subs(
     subs: Vec<plx_data::metadata::Stream>,
 ) -> plx_data::metadata::PlayingItem {
     plx_data::metadata::PlayingItem {
+        media_index: 0, part: String::new(),
         sid,
         rk: "rk-4k".into(),
         show_rk: String::new(),

@@ -3682,7 +3682,7 @@ impl DetailScreen {
             hue: true,
             restart,
             trailer: false,
-            alt: self.alt_available(meta),
+            alt: self.alt_available(meta) || self.detail(meta).is_some_and(|d| !d.is_show && d.versions.len() > 1),
             mark,
         }
     }
@@ -3918,7 +3918,7 @@ impl DetailScreen {
                 ),
             }
         } else {
-            let play = self.selected().map_or_else(
+            let play = self.selected().filter(|_| d.versions.len() <= 1).map_or_else(
                 || PlayIntent::Item {
                     sid: plx_media::route::item_sid(d.sid),
                     rk: d.rk.clone(),

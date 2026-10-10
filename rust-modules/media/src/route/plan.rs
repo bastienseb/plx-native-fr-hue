@@ -1364,7 +1364,10 @@ pub(super) fn build_stream(off: &plx_base::task::OffFrame, rk: &str, part: &str,
     plan.playing = env
         .cached_item
         .clone()
-        .or_else(|| plx_data::metadata::fetch_playing_item(env.sid, rk));
+        .filter(|item| item.part.is_empty() || item.part == part)
+        .or_else(|| plx_data::metadata::fetch_playing_item_for_part(env.sid, rk, part));
+    if !rk.is_empty() && plan.playing.is_none() { return plan; }
+    plan.contract.media_index = plan.playing.as_ref().map_or(0, |item| item.media_index);
     if let (Some(id), Some(item)) = (env.subtitle_override, plan.playing.as_mut()) {
         // The retry's explicit selection owns both embedded and sidecar restoration; a stale
         // server-side selection must not turn subtitles back on after the viewer chose Off.
@@ -1726,8 +1729,8 @@ pub(super) fn build_stream(off: &plx_base::task::OffFrame, rk: &str, part: &str,
         // which the server converts. The play-path PUT and start.mkv use `encode_audio_id`: remux
         // names the same; a re-encode walks the `audio_intents` ranking (the PMS selection, then
         // show/account language, then the direct-play pick), so 720p does not copy a foreign AC3.
-        if forced { forced_server_decision(client, rk, &session, carry_audio_id, subtitle_id) }
-        else { server_decision(client, rk, &session, carry_audio_id, subtitle_id) }
+        if forced { forced_server_decision(client, rk, &session, carry_audio_id, subtitle_id, plan.contract.media_index) }
+        else { server_decision(client, rk, &session, carry_audio_id, subtitle_id, plan.contract.media_index) }
     };
     // A direct play needs a track to play: with none the server converts the intended one, which
     // is not Original whatever MDE said about the (omitted) audio.
@@ -1909,6 +1912,7 @@ pub(super) fn build_stream(off: &plx_base::task::OffFrame, rk: &str, part: &str,
                         let probe_sub = if drawn { probe_drawn_sub_sid } else { env.sub_sid };
                         put_selection(off, env.sid, plan.part_id, probe_audio, probe_sub);
                         let probe = measure_remote_remux(
+                            plan.contract.media_index,
                             off,
                             client,
                             rk,
@@ -2207,7 +2211,7 @@ pub(super) fn build_stream(off: &plx_base::task::OffFrame, rk: &str, part: &str,
             // Back to the direct play the enhancement decorated. The MDE is re-asked first so the
             // Part GET follows a decision that is the direct play's own — M5 found PMS serving the
             // Part regardless, so this is belt-and-braces, not a 503 workaround.
-            let _ = server_decision(client, rk, &session, carry_audio_id, subtitle_id);
+            let _ = server_decision(client, rk, &session, carry_audio_id, subtitle_id, plan.contract.media_index);
             plan.contract.remux = false;
             plan.contract.no_video_copy = false;
             fill_direct_plan(&mut plan, client, part, &session, vcodec, acodec, audio_sel.as_ref(), dovi, dv_decision, sub_pick);

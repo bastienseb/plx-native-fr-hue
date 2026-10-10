@@ -1753,3 +1753,16 @@ fn the_hold_hint_stands_on_a_resting_library_card_once_per_run() {
     rest(&mut page, Some(key), 4.0);
     assert!(!page.hold_hint.visible(), "and not a second time on a Library page this run");
 }
+
+#[test]
+fn carousel_excludes_disabled_favourites_and_keeps_enabled_libraries() {
+    let _guard = plx_base::testlock::serial();
+    let mut fixture = Fixture::new();
+    let sid = plx_plex::plex::ServerId::from_raw(0);
+    fixture.directory = plx_data::browse::view::DirectorySnapshot::fixture(1, 0, (0..4).map(|i|
+        plx_data::browse::view::SectionView { sid: Some(sid), key: i as i64 + 1, kind: SecKind::Movie,
+            row: plx_data::browse::SrcRow { section: i, title: format!("Library {i}"),
+                pinned: i % 2 == 0, current: i == 0, ..Default::default() } }).collect());
+    let page = fixture.screen();
+    assert_eq!(page.libraries.iter().map(|(_, section)| *section).collect::<Vec<_>>(), vec![0, 2]);
+}

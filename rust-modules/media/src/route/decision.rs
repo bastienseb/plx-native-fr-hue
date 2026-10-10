@@ -2877,6 +2877,7 @@ pub struct HlsAbrControl {
     trace_generation: u32,
     sid: ServerId,
     rating_key: String,
+    media_index: i64,
     logical_session: String,
     audio_stream_id: i64,
     subtitle_stream_id: i64,
@@ -3196,6 +3197,7 @@ impl HlsAbrControl {
             self.audio_stream_id,
             self.subtitle_stream_id,
             plx_plex::plex::EncodeContract {
+                media_index: self.media_index,
                 remux: false,
                 no_video_copy: true,
                 ceiling: Some(rung.ceiling()),
@@ -3424,6 +3426,7 @@ pub fn hls_abr_control(ps: &PlaybackSession) -> Option<(HlsAbrControl, WorkerTic
             trace_generation: playback_trace_generation(),
             sid: cur_sid(ps),
             rating_key: cur_rk(ps),
+            media_index: ps.cur_contract.media_index,
             logical_session: sess(ps),
             audio_stream_id: cur_audio_sid(ps),
             subtitle_stream_id: cur_sub_sid(ps),
@@ -4189,6 +4192,7 @@ pub fn recover_auto_to_original_for(
 /// What an Original recovery's PMS half needs, owned: read off the session on the frame thread so
 /// the worker that runs it never sees a `PlaybackSession` (see [`plan_original_recovery`]).
 pub(super) struct OriginalRecoveryPlan {
+    media_index: i64,
     candidate: AutoOriginalCandidate,
     /// The route generation the recovery was planned against. Every commit below is gated on it.
     pub(super) expected: WorkerTicket,
@@ -4302,6 +4306,7 @@ fn plan_original_recovery(
         next_encoder_session(&namespace)
     };
     Some(OriginalRecoveryPlan {
+        media_index: ps.cur_contract.media_index,
         flavour,
         burn: matches!(route, Some(EnhancementRoute::Burn)),
         client: cur_client(ps),
@@ -4591,7 +4596,7 @@ fn recover_original_direct(
     { let s = &mut *ps; {
         s.url = source_url;
         s.tsession.clear();
-        s.cur_contract = plx_plex::plex::EncodeContract::original(false, plx_plex::plex::AudioEnhancements::NONE);
+        s.cur_contract = plx_plex::plex::EncodeContract { media_index: s.cur_contract.media_index, ..plx_plex::plex::EncodeContract::original(false, plx_plex::plex::AudioEnhancements::NONE) };
         s.cur_enhancement = outcome;
         s.cur_auto_original_watched = watched;
         s.cur_audio = candidate.audio.clone();
@@ -6837,6 +6842,7 @@ pub(super) fn measure_remote_original(url: &str, source_kbps: i64) -> Option<cra
 /// before any enhanced `start.mkv` is fetched — samples that plain remux, and reports
 /// [`RemuxProbe::enhancement_refused`] so the play is built without the params and records it.
 pub(super) fn measure_remote_remux(
+    media_index: i64,
     off: &plx_base::task::OffFrame,
     client: &plx_plex::plex::Client,
     rk: &str,
@@ -6862,7 +6868,7 @@ pub(super) fn measure_remote_remux(
             audio_stream_id,
             subtitle_stream_id,
             client_subtitles,
-            enhanced_remux_contract(audio, false),
+            plx_plex::plex::EncodeContract { media_index, ..enhanced_remux_contract(audio, false) },
         )
     };
     let mut spec = spec_for(audio);
@@ -6922,8 +6928,9 @@ pub(super) fn server_decision(
     session: &str,
     audio_stream_id: i64,
     subtitle_stream_id: i64,
+    media_index: i64,
 ) -> Option<MdeVerdict> {
-    let mc = match c.mde_decision(rk, session, audio_stream_id, subtitle_stream_id) {
+    let mc = match c.mde_decision_for_media(rk, session, audio_stream_id, subtitle_stream_id, false, media_index) {
         Some(mc) => mc,
         None => {
             // failed fetch OR unparseable (XML/truncated) body — no Original Part
@@ -6981,9 +6988,9 @@ fn mde_verdict(mc: &plx_plex::plex::MediaContainer) -> Option<MdeVerdict> {
 }
 
 pub(super) fn forced_server_decision(
-    c: &plx_plex::plex::Client, rk: &str, session: &str, audio: i64, sub: i64,
+    c: &plx_plex::plex::Client, rk: &str, session: &str, audio: i64, sub: i64, media_index: i64,
 ) -> Option<MdeVerdict> {
-    mde_verdict(&c.mde_decision_forced(rk, session, audio, sub)?)
+    mde_verdict(&c.mde_decision_for_media(rk, session, audio, sub, true, media_index)?)
 }
 
 /// Select the audio + subtitle streams server-side for the current part before a
@@ -8290,7 +8297,7 @@ fn prepare_original_remux(
             plx_plex::plex::TranscodeOffset::from_seconds(plan.offset_secs.max(0)),
             candidate_audio_sid,
             subtitle,
-            enhanced_remux_contract(audio, force_burn),
+            plx_plex::plex::EncodeContract { media_index: plan.media_index, ..enhanced_remux_contract(audio, force_burn) },
         )
     };
     let mut audio = audio;
@@ -8366,7 +8373,7 @@ fn install_original_remux(
     { let s = &mut *ps; {
         s.url = prepared.url.clone();
         s.tsession = prepared.replacement.clone();
-        s.cur_contract = enhanced_remux_contract(prepared.audio, prepared.force_burn);
+        s.cur_contract = plx_plex::plex::EncodeContract { media_index: s.cur_contract.media_index, ..enhanced_remux_contract(prepared.audio, prepared.force_burn) };
         s.cur_enhancement = prepared.enhancement;
         s.cur_auto_original_watched = watched;
         s.cur_audio = candidate.audio.clone();
@@ -8469,6 +8476,7 @@ fn re_encode_contract(
     ceiling: Option<plx_plex::plex::Ceiling>,
 ) -> plx_plex::plex::EncodeContract {
     plx_plex::plex::EncodeContract {
+        media_index: ps.cur_contract.media_index,
         remux: false,
         delivery,
         no_video_copy: is_no_video_copy(ps),
@@ -8582,6 +8590,7 @@ pub(super) fn log_enhancement_outcome(
 /// Captured once, on the main thread, from a `PlaybackSession` the worker never sees again.
 #[derive(Clone)]
 pub(super) struct RetranscodeClaimInputs {
+    media_index: i64,
     client: &'static plx_plex::plex::Client,
     sid: ServerId,
     rk: String,
@@ -8705,6 +8714,7 @@ pub(super) fn request_retranscode(
     if !is_worker_ticket_current(&inputs.expected) {
         return None;
     }
+    let contract = plx_plex::plex::EncodeContract { media_index: inputs.media_index, ..contract };
     let plx_plex::plex::EncodeContract { audio, .. } = contract;
     let (fallback_vcodec, fallback_acodec) = retranscode_fallback_codecs(inputs, &contract);
     let qsess = next_encoder_session(&inputs.namespace);
@@ -8844,6 +8854,7 @@ fn prepare_retranscode_inputs(
         logical
     };
     Some(RetranscodeClaimInputs {
+        media_index: ps.cur_contract.media_index,
         client,
         sid: cur_sid(ps),
         part_id: cur_part_id(ps),
@@ -9105,7 +9116,7 @@ pub fn side_reader_target(ps: &PlaybackSession) -> Option<SideReaderTarget> {
 /// the rebuild lands, and that rebuild must keep the params.
 pub fn live_is_own_burn(ps: &PlaybackSession) -> bool {
     ps.cur_contract.audio.any()
-        && ps.cur_contract == enhanced_remux_contract(ps.cur_contract.audio, true)
+        && ps.cur_contract == plx_plex::plex::EncodeContract { media_index: ps.cur_contract.media_index, ..enhanced_remux_contract(ps.cur_contract.audio, true) }
 }
 
 /// **Is the live route Original quality with an embedded subtitle burned in?** The shape the
@@ -9184,6 +9195,7 @@ fn enhanced_remux_contract(
     force_burn: bool,
 ) -> plx_plex::plex::EncodeContract {
     plx_plex::plex::EncodeContract {
+        media_index: 0,
         remux: !force_burn,
         delivery: plx_plex::plex::TranscodeDelivery::ProgressiveMkv,
         no_video_copy: false,
@@ -9874,6 +9886,7 @@ pub fn enhancement_test_session(route: EnhTestFixture) -> (PlaybackSession, Serv
         EnhancementOutcome::Off
     };
     ps.cur_contract = plx_plex::plex::EncodeContract {
+        media_index: 0,
         remux: matches!(route.remux, Some(true)) && !(route.applied_burn && route.applied.any()),
         delivery: plx_plex::plex::TranscodeDelivery::ProgressiveMkv,
         no_video_copy: false,

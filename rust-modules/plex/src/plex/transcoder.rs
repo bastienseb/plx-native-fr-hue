@@ -291,7 +291,7 @@ impl Client {
         let protocol = if hls { "hls" } else { "http" };
         let mut q = QueryBuilder::new("")
             .str("path", &format!("/library/metadata/{}", s.rating_key))
-            .int("mediaIndex", 0)
+            .int("mediaIndex", s.contract.media_index)
             .int("partIndex", 0)
             .str("protocol", protocol)
             .int("directPlay", 0)
@@ -404,7 +404,7 @@ impl Client {
         audio_stream_id: i64,
         subtitle_stream_id: i64,
     ) -> Option<MediaContainer> {
-        self.mde_decision_with_profile(rating_key, session, audio_stream_id, subtitle_stream_id, false)
+        self.mde_decision_with_profile(rating_key, session, audio_stream_id, subtitle_stream_id, false, 0)
     }
 
     /// Strict Original override: advertise the software feed formats without device limits.
@@ -417,7 +417,12 @@ impl Client {
         audio_stream_id: i64,
         subtitle_stream_id: i64,
     ) -> Option<MediaContainer> {
-        self.mde_decision_with_profile(rating_key, session, audio_stream_id, subtitle_stream_id, true)
+        self.mde_decision_with_profile(rating_key, session, audio_stream_id, subtitle_stream_id, true, 0)
+    }
+
+    /// Evaluate precisely the file chosen in the Version menu.
+    pub fn mde_decision_for_media(&self, rating_key: &str, session: &str, audio: i64, sub: i64, forced: bool, media_index: i64) -> Option<MediaContainer> {
+        self.mde_decision_with_profile(rating_key, session, audio, sub, forced, media_index)
     }
 
     fn mde_decision_with_profile(
@@ -427,10 +432,11 @@ impl Client {
         audio_stream_id: i64,
         subtitle_stream_id: i64,
         forced: bool,
+        media_index: i64,
     ) -> Option<MediaContainer> {
         let q = QueryBuilder::new("/video/:/transcode/universal/decision")
             .str("path", &format!("/library/metadata/{rating_key}"))
-            .int("mediaIndex", 0)
+            .int("mediaIndex", media_index)
             .int("partIndex", 0)
             .str("protocol", "http")
             .int("hasMDE", 1)
@@ -623,6 +629,7 @@ mod tests {
             session: "s1",
             encoder_session: "s1",
             contract: EncodeContract {
+                media_index: 0,
                 remux,
                 delivery: super::TranscodeDelivery::ProgressiveMkv,
                 no_video_copy,
@@ -1403,5 +1410,22 @@ mod tests {
             assert!(!with_none.contains("boostDialog"), "{with_none}");
             assert!(!with_none.contains("normalizeLoudness"), "{with_none}");
         }
+    }
+}
+
+#[cfg(test)]
+mod version_wire_tests {
+    use super::*;
+    #[test]
+    fn decision_and_start_query_keep_selected_media_index() {
+        let client = Client::new(crate::plex::ServerId::from_raw(1), "machine", crate::plex::Origin::http("127.0.0.1", 32400), "", "client");
+        let spec = TranscodeSpec {
+            rating_key: "42", session: "session", encoder_session: "session",
+            contract: crate::plex::EncodeContract { media_index: 2, ..Default::default() },
+            audio_stream_id: 0, subtitle_stream_id: 0, client_subtitles: false,
+            offset: crate::plex::TranscodeOffset::Fresh,
+        };
+        assert!(client.transcode_query(&spec).contains("mediaIndex=2"));
+        assert!(client.transcode_start_url(&spec).to_url().contains("mediaIndex=2"));
     }
 }

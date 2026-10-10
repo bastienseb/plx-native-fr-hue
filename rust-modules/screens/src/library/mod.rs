@@ -386,14 +386,14 @@ impl LibraryScreen {
         }
         if let Some(current) = self.view_section(cx) {
             for (index, section) in directory.sections().iter().enumerate()
-                .filter(|(_, section)| section.kind == directory.sections()[current].kind) {
+                .filter(|(_, section)| section.row.pinned && section.kind == directory.sections()[current].kind) {
                 let Some(sid) = section.sid else { continue };
                 let elem = self.keys.register(
                     LibraryIdentity::Library(LibrarySectionIdentity { sid, key: section.key }),
                     LIBRARY_GROUP, self.libraries.len());
                 self.libraries.push((elem, index));
             }
-            // Every library of this type is reachable directly in the horizontal strip.
+            // Every enabled favourite of this type is reachable directly in the horizontal strip.
             // A singleton still needs no selector, regardless of its source or ownership.
             if self.libraries.len() <= 1 {
                 self.libraries.clear();

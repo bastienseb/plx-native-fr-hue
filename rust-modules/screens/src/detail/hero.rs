@@ -173,7 +173,7 @@ pub fn hero_ctls(set: HeroSet) -> ([HeroCtl; 6], usize) {
         v[n] = HeroCtl::Trailer;
         n += 1;
     }
-    if set.alt {
+    if set.alt && !set.hue {
         v[n] = HeroCtl::Alt;
         n += 1;
     }
@@ -183,6 +183,10 @@ pub fn hero_ctls(set: HeroSet) -> ([HeroCtl; 6], usize) {
         HeroCtl::MarkWatched
     };
     n += 1;
+    if set.alt && set.hue {
+        v[n] = HeroCtl::Alt;
+        n += 1;
+    }
     (v, n)
 }
 

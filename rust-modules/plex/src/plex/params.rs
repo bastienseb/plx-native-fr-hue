@@ -97,6 +97,8 @@ impl AudioEnhancements {
 /// of four call sites that could each be edited without the others noticing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct EncodeContract {
+    /// Original Media[] position of the chosen file.
+    pub media_index: i64,
     /// true = container-only remux (the source codecs are direct-playable, the container
     /// isn't): copy what the profile admits of video+audio into progressive MKV, and let the
     /// server convert the rest (an audio track the TV cannot decode becomes the profile's own
@@ -147,6 +149,7 @@ impl EncodeContract {
     /// recovery. `const fn` so it can seed a `const` value (`PlaybackSession::IDLE`).
     pub const fn original(remux: bool, audio: AudioEnhancements) -> Self {
         EncodeContract {
+            media_index: 0,
             remux,
             delivery: TranscodeDelivery::ProgressiveMkv,
             no_video_copy: false,

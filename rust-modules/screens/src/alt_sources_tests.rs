@@ -319,6 +319,7 @@ fn ok_navigates_to_another_copy_and_never_to_the_one_you_are_on() {
         checked: false,
         sid: sid(s),
         rk: rk.into(),
+        media_part: None,
     };
     let list = [row(0, "4"), row(1, "318"), row(2, "")];
     assert_eq!(
@@ -1087,4 +1088,30 @@ fn every_app_owned_run_fits_the_panel_in_every_language() {
         out.extend(table.app_fit_failures_hugged(language.tag()));
     }
     plx_ui::table::assert_no_fit_failures(&out);
+}
+
+#[test]
+fn local_version_choice_updates_only_the_addressed_file_and_keeps_resume() {
+    let _guard = plx_base::testlock::serial();
+    let versions = vec![
+        plx_data::metadata::MediaVersion { media_index: 0, part: "/library/parts/1/file.mkv".into(), file: "film-1080.mkv".into(), resolution: "1080".into(), vcodec: "h264".into(), acodec: "ac3".into(), ..Default::default() },
+        plx_data::metadata::MediaVersion { media_index: 1, part: "/library/parts/2/file.mkv".into(), file: "film-4k.mkv".into(), resolution: "4k".into(), vcodec: "hevc".into(), acodec: "eac3".into(), ..Default::default() },
+    ];
+    plx_data::metadata::set_current_for_test(test_store().state_mut(), Some(plx_data::metadata::Detail {
+        sid: sid(0), rk: "multi".into(), part: versions[0].part.clone(), versions, resume_ms: 90_000, ..Default::default()
+    }));
+    let mut chooser = panel(sid(0), "multi");
+    assert_eq!(chooser.rows.len(), 2);
+    assert!(chooser.rows[0].checked);
+    assert!(chooser.rows[1].label.contains("4K"));
+    assert!(matches!(action_for(&chooser.rows[1], sid(0), "multi"), Action::SelectVersion { part, .. } if part == "/library/parts/2/file.mkv"));
+    let cmd = MetadataCmd::SelectVersion { sid: sid(0), rk: "multi".into(), part: chooser.rows[1].media_part.clone().unwrap() };
+    assert!(test_store().run(cmd));
+    chooser.refresh(test_store().view());
+    assert!(!chooser.rows[0].checked);
+    assert!(chooser.rows[1].checked);
+    let d = test_store().view().current().unwrap();
+    assert_eq!((d.media_index, d.resume_ms), (1, 90_000));
+    assert!(!test_store().run(MetadataCmd::SelectVersion { sid: sid(1), rk: "multi".into(), part: "/library/parts/1/file.mkv".into() }));
+    plx_data::metadata::set_current_for_test(test_store().state_mut(), None);
 }
