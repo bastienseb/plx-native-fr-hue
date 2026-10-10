@@ -769,6 +769,7 @@ fn ok_on_the_dim_timing_row_while_off_keeps_the_panel_open() {
 /// "yours" (`subtitle_yours_langs`), so English subtitles are rows on the Subtitles root, not behind
 /// "Other languages".
 fn english_audio_with_subs(ps: &plx_media::route::PlaybackSession, subs: Vec<plx_data::metadata::Stream>) -> plx_data::metadata::PlayingItem {
+        media_index: 0, part: String::new(),
     let mut item = plx_data::metadata::PlayingItem::with_subs(subs);
     item.audio = vec![plx_data::metadata::Stream {
         id: plx_media::route::cur_audio_sid(ps),
@@ -1007,6 +1008,7 @@ fn the_player_panels_dim_through_the_container_from_the_playing_items_corners() 
     let corners = [[0.1, 0.5, 0.2], [0.2, 0.4, 0.1], [0.6, 0.2, 0.1], [0.1, 0.1, 0.4]];
     let mut store = plx_data::stores::metadata::MetadataStore::default();
     assert!(store.run(plx_data::stores::metadata::MetadataCmd::InstallPlaying(Some(plx_data::metadata::PlayingItem {
+        media_index: 0, part: String::new(),
         sid: plx_plex::plex::ServerId::from_raw(0), rk: "rk".into(), show_rk: String::new(), audio: Vec::new(), subs: Vec::new(),
         video_fps: 0.0, width: 0, height: 0, bitrate: 0, dovi: Default::default(),
         markers: Vec::new(), chapters: Vec::new(), blur: Some(corners),
