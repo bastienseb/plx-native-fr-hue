@@ -73,7 +73,8 @@ const STATUS_GROUP: GroupId = GroupId(0x4c49_4212);
 const SORT: u32 = 1;
 const FILTER: u32 = 2;
 const RETRY: u32 = 3;
-const MORE: u32 = 4;
+#[cfg(test)]
+const MORE: u32 = 4; // Retired overflow identity, used only by canonical-state fixtures.
 /// "Connect without encryption?" over a failed source's read-out (`screens::plaintext_question`).
 const PLAINTEXT_GROUP: GroupId = GroupId(0x4c49_4213);
 const PLAINTEXT_CANCEL: u32 = 5;
@@ -88,7 +89,7 @@ pub const SHAPE: [&str; 8] = [
     transactions::SHAPE,
     plx_ui::widgets::PageGround::SHAPE,
     plx_ui::widgets::TabStrip::SHAPE,
-    "LibraryChrome{capsules:TabStrip,pop:CtlPop{sp:[Spring{pos:f32,vel:f32}],focused:Option<u32>},pair_groups:{master:u32,detail:u32}}",
+    "LibraryChrome{capsules:TabStrip,scroll:Spring{pos:f32,vel:f32},pop:CtlPop{sp:[Spring{pos:f32,vel:f32}],focused:Option<u32>},pair_groups:{master:u32,detail:u32}}",
     Layout::SHAPE,
     GridPart::SHAPE,
     RailPart::SHAPE,
@@ -196,6 +197,7 @@ pub struct LibraryScreen {
     sweep_down: bool,
     // Paint-only state: neither capsule travel nor ambient colours choose focus or activation.
     library_capsules: plx_ui::widgets::TabStrip,
+    library_scroll: Spring,
     library_pop: plx_ui::widgets::CtlPop<1>,
     ground: plx_ui::widgets::PageGround,
     ground_seeded: bool,
@@ -235,6 +237,7 @@ impl LibraryScreen {
             pending: PendingTransactions::default(), page_fade: Xfade::new(), grid_fade: Xfade::new(),
             readout: Readout::Loading, live: true, initial: true, provisional: None, placed: Vec::new(), sweep_down: true,
             library_capsules: plx_ui::widgets::TabStrip::new(),
+            library_scroll: Spring::at(0.0),
             library_pop: plx_ui::widgets::CtlPop::new(),
             ground: plx_ui::widgets::PageGround::new(), ground_seeded: false,
             plaintext: Default::default(),
@@ -382,36 +385,19 @@ impl LibraryScreen {
             }
         }
         if let Some(current) = self.view_section(cx) {
-            for (index, section) in directory.favorite_sections_for(current) {
+            for (index, section) in directory.sections().iter().enumerate()
+                .filter(|(_, section)| section.kind == directory.sections()[current].kind) {
                 let Some(sid) = section.sid else { continue };
                 let elem = self.keys.register(
                     LibraryIdentity::Library(LibrarySectionIdentity { sid, key: section.key }),
                     LIBRARY_GROUP, self.libraries.len());
                 self.libraries.push((elem, index));
             }
-            // A SINGLE candidate never draws a selector, whatever owns the section it names.
-            // The prior rule kept the row up for a `borrowed` singleton — carried forward
-            // wholesale from the 0.6.x server picker by `3c2de7ad` — so a Guest or managed
-            // profile, whose own household server always arrives `owned: false`
-            // (`plex/account.rs`), saw a lone `Library · <name> ⌄` chip on every section with one
-            // favourite: issue #100/#165, reported as a stray "Sources" control on a real TV. A
-            // single library carries nothing to disambiguate for ANY profile, so ownership must
-            // not decide this; only the CANDIDATE COUNT does, and only 2+ ever reaches the
-            // overflow window below.
+            // Every library of this type is reachable directly in the horizontal strip.
+            // A singleton still needs no selector, regardless of its source or ownership.
             if self.libraries.len() <= 1 {
                 self.libraries.clear();
-            } else {
-                let widths: Vec<_> = self.library_lays(cx).iter().map(|lay|
-                    plx_ui::widgets::strip_pill_rect(lay, 0.0, plx_ui::widgets::StatusOverlay::CTRL_H).w).collect();
-                let selected = self.libraries.iter().position(|(_, index)| *index == current).unwrap_or(0);
-                let more = std::ffi::CString::new(format!("+{}", widths.len().saturating_sub(1))).unwrap_or_default();
-                let more_w = cx.measure.width(&more, plx_ui::theme::size::BODY, true) + 2.0 * plx_ui::widgets::STRIP_PAD;
-                let (start, len) = layout::library_window(&widths, selected, layout::GRID_RIGHT - MARGIN_X,
-                    plx_ui::widgets::STRIP_GAP_WIDE, more_w, layout::MAX_LIBRARY_PILLS);
-                if len < self.libraries.len() {
-                    self.libraries = self.libraries[start..start + len].to_vec();
-                    self.libraries.push((MORE, usize::MAX));
-                }
+                self.library_scroll.jump(0.0);
             }
         }
         if let Some(kind) = self.wanted_kind.filter(|kind|
@@ -577,7 +563,7 @@ impl LibraryScreen {
             Some(self.target_layout.shelf_reveal(&self.target_run, index))
         } else if matches!(key.elem, TYPE | SORT | FILTER) {
             Some(self.target_layout.grid_block_top().clamp(0.0, self.target_layout.max_scroll()))
-        } else if self.libraries.iter().any(|(elem, _)| *elem == key.elem) || key.elem == RETRY {
+        } else if key.elem == RETRY {
             Some(0.0)
         } else { None };
         if let Some(want) = want {
@@ -682,15 +668,11 @@ impl LibraryScreen {
         // and none of them moves focus, so no `FocusMoved` will release it.
         self.provisional = None;
         self.placed.retain(|(_, placed)| *placed != elem);
-        // A singleton never reaches this screen at all any more (`self.libraries` is cleared in
-        // `sync`), so `MORE` is the only remaining way into the Sources menu — an ordinary library
-        // pill below always requests a section transition, never a menu.
-        if [TYPE, SORT, FILTER, MORE].contains(&elem) {
+        if [TYPE, SORT, FILTER].contains(&elem) {
             if let (Some(target), Some(placed)) = (self.requested_address(cx), <Self as Focusable<H>>::place(self, &elem, cx, At::SpringTarget)) {
                 let r = placed.rest_rect;
                 fx.push(Fx::App(AppFx::Library(LibraryReq::Menu {
-                    kind: if elem == MORE { crate::registry::LibraryMenuKind::Sources }
-                        else if elem == SORT { crate::registry::LibraryMenuKind::Sort }
+                    kind: if elem == SORT { crate::registry::LibraryMenuKind::Sort }
                         else if elem == TYPE { crate::registry::LibraryMenuKind::Type }
                         else { crate::registry::LibraryMenuKind::Filter },
                     anchor: [r.x.to_bits(), r.y.to_bits(), r.w.to_bits(), r.h.to_bits()], target,
@@ -1046,8 +1028,12 @@ impl LibraryScreen {
                     let selected = self.libraries.iter().position(|(_, section)| Some(*section) == chosen).map_or(-1, |i| i as i32);
                     let focused_library = focused.filter(|key| key.entry == self.entry)
                         .and_then(|key| self.libraries.iter().position(|(elem, _)| *elem == key.elem)).map_or(-1, |i| i as i32);
-                    let spans: Vec<_> = (0..self.libraries.len()).map(|i| {
-                        let rect = self.library_rect(i, cx); (rect.x, rect.w)
+                    let lays = self.library_lays(cx);
+                    let target = self.library_scroll_target(cx, &lays);
+                    self.library_scroll.step(target, K_SCROLL, dt);
+                    let spans: Vec<_> = lays.iter().map(|lay| {
+                        let rect = plx_ui::widgets::strip_pill_rect(lay, layout::LIBRARY_TOP, plx_ui::widgets::StatusOverlay::CTRL_H);
+                        (rect.x, rect.w)
                     }).collect();
                     self.library_capsules.update(selected, focused_library, |i| spans.get(i).copied(), plx_ui::widgets::SelMark::Travels, dt);
                     self.library_pop.step((focused_library >= 0).then_some(0), dt);
@@ -1167,8 +1153,15 @@ impl LibraryScreen {
                         self.reseat(FocusTarget::ContainerGroup(self.pair.groups_config().detail), fx);
                         return Handled::Yes;
                     }
+                    if cx.focus.current.is_some_and(|key| key.entry == self.entry
+                        && self.libraries.iter().any(|(elem, _)| *elem == key.elem)) {
+                        self.reseat(FocusTarget::ContainerGroup(STRIP), fx);
+                        return Handled::Yes;
+                    }
                     if self.scroll_target > 0.5 {
-                        self.scroll_target = 0.0;
+                        // The fixed selector is one BACK away, even at the end of the catalog.
+                        // Keep the current library's document position while choosing another.
+                        if self.libraries.is_empty() { self.scroll_target = 0.0; }
                         self.reseat(FocusTarget::ContainerGroup(self.first_group()), fx);
                     } else { fx.push(Fx::App(AppFx::Library(LibraryReq::BackToHome { kind: self.kind }))); }
                     return Handled::Yes;
@@ -1184,7 +1177,7 @@ impl<H: LibraryLike> Focusable<H> for LibraryScreen {
     fn groups(&self, cx: &Cx<'_, H>, out: &mut Vec<GroupSpec>) {
         if self.plaintext_alert.groups(out) { return; }
         if !self.libraries.is_empty() {
-            out.push(row_group(LIBRARY_GROUP, self.libraries.len(), Rect::new(MARGIN_X, CONTENT_TOP - self.scroll.pos, layout::GRID_RIGHT - MARGIN_X, 52.0), ElemKind::Control));
+            out.push(row_group(LIBRARY_GROUP, self.libraries.len(), self.library_clip(), ElemKind::Control));
         }
         for (index, row) in self.shelves.iter().enumerate() {
             let mut shelf = row_group(row.group, row.elems.len(), Rect::new(MARGIN_X, self.target_layout.shelf_y(&self.target_run, index, self.scroll_target) + CARD_DY, SCR_W - 2.0 * MARGIN_X, row_style(row).h), ElemKind::Card);
@@ -1237,7 +1230,8 @@ impl<H: LibraryLike> Focusable<H> for LibraryScreen {
             return self.pair.place(elem, cx, at);
         }
         let rect = if let Some(index) = self.libraries.iter().position(|(key, _)| key == elem) {
-            self.library_rect(index, cx)
+            let rect = self.library_rect_at(index, cx, at);
+            return Some(Placed { rect, rest_rect: rect, clip: self.library_clip(), index: None });
         } else if let Some((row, col)) = self.shelves.iter().enumerate().find_map(|(row, shelf)|
             shelf.elems.iter().position(|key| key == elem).map(|col| (row, col))) {
             if at == At::Drawn { return self.shelf_placed(row, elem, cx); }
@@ -1247,7 +1241,7 @@ impl<H: LibraryLike> Focusable<H> for LibraryScreen {
         } else if self.toolbar_elems().contains(elem) && self.layout.grid_head { self.toolbar_chip_rect(*elem, cx, at) }
         else if *elem == RETRY && self.readout == Readout::Failed { self.status_rect(cx)? }
         else { return None };
-        Some(Placed { rect, rest_rect: rect, clip: content_clip(), index: None })
+        Some(Placed { rect, rest_rect: rect, clip: self.content_clip(), index: None })
     }
     fn reconcile(&self, want: FocusKey<u32>, cx: &Cx<'_, H>) -> FocusKey<u32> {
         if let Some(key) = self.plaintext_alert.reconcile(want) { return key; }
@@ -1292,7 +1286,7 @@ impl LibraryScreen {
     }
     /// Where shelf `index` sits for the component, in screen space: the top of its tiles.
     fn shelf_frame(&self, index: usize) -> SectionFrame {
-        SectionFrame { y: self.layout.shelf_y(&self.run, index, self.scroll.pos) + CARD_DY, clip: content_clip() }
+        SectionFrame { y: self.layout.shelf_y(&self.run, index, self.scroll.pos) + CARD_DY, clip: self.content_clip() }
     }
     /// Shelf `index`'s content, read off the published hub (borrows only).
     fn hub_src<'a, 'v: 'a, H: LibraryLike>(&'a self, index: usize, cx: &Cx<'v, H>) -> draw::HubSrc<'a> {
@@ -1339,12 +1333,37 @@ impl LibraryScreen {
         Some(heading.face_rect(MARGIN_X, y, f32::from(focused), &heading.measure(cx.measure)))
     }
     fn library_rect<H: LibraryLike>(&self, index: usize, cx: &Cx<'_, H>) -> Rect {
-        let y = CONTENT_TOP - self.scroll.pos - self.shelves.first().map_or(0.0, |row| row.cards.heading_lift());
-        // Geometry always comes from the shared pill strip now: a singleton never reaches this
-        // (`self.libraries` is empty), so there is no separate chip-width branch to keep in sync.
-        self.library_lays(cx).get(index).map(|lay|
-            plx_ui::widgets::strip_pill_rect(lay, y, plx_ui::widgets::StatusOverlay::CTRL_H))
-            .unwrap_or(Rect::new(MARGIN_X, y, 0.0, 0.0))
+        self.library_rect_at(index, cx, At::Drawn)
+    }
+    fn library_rect_at<H: LibraryLike>(&self, index: usize, cx: &Cx<'_, H>, at: At) -> Rect {
+        let lays = self.library_lays(cx);
+        let scroll = match at { At::Drawn => self.library_scroll.pos,
+            At::SpringTarget => self.library_scroll_target(cx, &lays) };
+        lays.get(index).map(|lay| {
+            let mut rect = plx_ui::widgets::strip_pill_rect(lay, layout::LIBRARY_TOP, plx_ui::widgets::StatusOverlay::CTRL_H);
+            rect.x -= scroll;
+            rect
+        }).unwrap_or(Rect::new(MARGIN_X, layout::LIBRARY_TOP, 0.0, 0.0))
+    }
+    fn library_scroll_target<H: LibraryLike>(&self, cx: &Cx<'_, H>, lays: &[plx_ui::widgets::StripLay]) -> f32 {
+        let focused = cx.focus.current.filter(|key| key.entry == self.entry)
+            .and_then(|key| self.libraries.iter().position(|(elem, _)| *elem == key.elem));
+        let chosen = self.view_section(cx);
+        let index = focused.or_else(|| self.libraries.iter().position(|(_, section)| Some(*section) == chosen));
+        let max = lays.last().map_or(0.0, |lay| lay.x + lay.w + plx_ui::widgets::STRIP_PAD - layout::GRID_RIGHT).max(0.0);
+        let Some(lay) = index.and_then(|i| lays.get(i)) else { return self.library_scroll.pos.clamp(0.0, max) };
+        let rect = plx_ui::widgets::strip_pill_rect(lay, 0.0, plx_ui::widgets::StatusOverlay::CTRL_H);
+        plx_ui::cards::reveal(self.library_scroll.pos,
+            rect.x + rect.w + plx_ui::theme::space::SM - layout::GRID_RIGHT,
+            rect.x - plx_ui::theme::space::SM - MARGIN_X, max)
+    }
+    fn library_clip(&self) -> Rect {
+        Rect::new(MARGIN_X, layout::LIBRARY_TOP - plx_ui::theme::space::SM,
+            layout::GRID_RIGHT - MARGIN_X, plx_ui::widgets::StatusOverlay::CTRL_H + 2.0 * plx_ui::theme::space::SM)
+    }
+    fn content_clip(&self) -> Rect {
+        let top = if self.libraries.is_empty() { plx_ui::widgets::TOP_BAR_BOTTOM } else { layout::LIBRARY_BOTTOM };
+        Rect::new(0.0, top, SCR_W, SCR_H - top)
     }
 }
 impl HubShelf {
@@ -1358,10 +1377,6 @@ fn hub_style(landscape: bool) -> &'static RowStyle { if landscape { &RowStyle::E
 /// card's shadow reaches onto the screen from beyond its edge.
 fn hub_cards(entry: EntryId, landscape: bool) -> plx_ui::cards::Shelf {
     plx_ui::cards::Shelf::new(entry, hub_style(landscape)).cull_margin(32.0)
-}
-/// The panel the shelves' cards are placed and hit-tested in: everything under the top bar.
-fn content_clip() -> Rect {
-    Rect::new(0.0, plx_ui::widgets::TOP_BAR_BOTTOM, SCR_W, SCR_H - plx_ui::widgets::TOP_BAR_BOTTOM)
 }
 fn row_group(id: GroupId, len: usize, extent: Rect, elem: ElemKind) -> GroupSpec {
     GroupSpec { id, kind: GroupKind::Row { wrap: false }, seat: Seat::Remembered,
@@ -1440,6 +1455,7 @@ impl LogicalState for LibraryScreen {
         c.bool(self.ground_seeded);
         self.ground.write_motion(c);
         self.library_capsules.write_motion(c);
+        c.f32(self.library_scroll.pos).f32(self.library_scroll.vel);
         self.library_pop.write_motion(c);
         PageMemory::Library(self.page_memory()).write(c);
         c.seq(self.viewports.len());

@@ -256,25 +256,15 @@ fn shows_requested_before_discovery_stays_loading_and_never_fetches_the_foreign_
 }
 
 #[test]
-fn an_external_sources_selection_reseats_the_library_row_once_not_on_metadata_refresh() {
+fn an_external_library_selection_reseats_the_library_row_once_not_on_metadata_refresh() {
     let _guard = plx_base::testlock::serial();
     let mut fixture = Fixture::new(12, 12, 0);
     let mut page = fixture.screen();
     page.initial = false;
     let mut engine = FocusEngine::new();
-    assert!(
-        page.libraries.iter().any(|(elem, _)| *elem == MORE),
-        "the fixture must have actual overflow"
-    );
-    engine.set(OWNER, page.key(MORE), Some(LIBRARY_GROUP), By::Restore);
-    let effects = fixture.step(&mut page, &mut engine, ScreenEvent::Activate(MORE));
-    assert!(effects.iter().any(|effect| matches!(
-        effect,
-        AppFx::Library(LibraryReq::Menu {
-            kind: crate::registry::LibraryMenuKind::Sources,
-            ..
-        })
-    )));
+    assert_eq!(page.libraries.len(), 12, "every library is directly reachable");
+    let other = page.key(page.libraries[11].0);
+    engine.set(OWNER, other, Some(LIBRARY_GROUP), By::Restore);
     let target = SectionAddress {
         epoch: fixture.epoch,
         sid: plx_plex::plex::ServerId::UNSET,
@@ -322,9 +312,9 @@ fn an_external_sources_selection_reseats_the_library_row_once_not_on_metadata_re
     assert_eq!(
         engine.current(OWNER),
         Some(wanted),
-        "the row must seat the library selected in Sources"
+        "the row must seat the externally selected library"
     );
-    engine.set(OWNER, page.key(MORE), Some(LIBRARY_GROUP), By::Dir);
+    engine.set(OWNER, other, Some(LIBRARY_GROUP), By::Dir);
     fixture.publish(2, 24);
     fixture.step(
         &mut page,
@@ -341,7 +331,7 @@ fn an_external_sources_selection_reseats_the_library_row_once_not_on_metadata_re
     );
     assert_eq!(
         engine.current(OWNER),
-        Some(page.key(MORE)),
+        Some(other),
         "same-selection refresh must not leash the cursor"
     );
 }

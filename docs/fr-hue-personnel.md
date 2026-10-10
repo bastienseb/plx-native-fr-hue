@@ -56,3 +56,7 @@ et vérifier : navigation télécommande, textes sans débordement, lecture norm
 reprise avec Hue, vidéo SDR, sortie du lecteur et arrêt brutal. HDR, Dolby Vision
 et enchaînement d’épisodes nécessitent également un essai réel. Utiliser une vidéo
 personnelle choisie par l’utilisateur, sans modifier son historique à son insu.
+
+## Navigation des bibliothèques
+
+Les bibliothèques Films et Séries restent visibles dans une seconde ligne fixe, rapprochée du menu principal. Toutes les bibliothèques du type choisi sont accessibles par gauche/droite dans cette ligne, y compris celles non épinglées ; il n'y a plus de capsule « +N ». La sélection défile horizontalement dans la zone visible. Depuis une grille défilée, Retour rejoint les bibliothèques sans remonter le catalogue ; un deuxième Retour rejoint le menu principal. Le pointeur ne peut pas sélectionner une affiche sous cette ligne fixe.

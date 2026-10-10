@@ -1338,7 +1338,7 @@ fn favorite_library_row_uses_shared_strip_geometry_and_incoming_type() {
         MARGIN_X + plx_ui::widgets::STRIP_PAD, plx_ui::theme::size::BODY,
         plx_ui::widgets::STRIP_GAP_WIDE, cx.measure);
     for (i, lay) in lays.iter().enumerate() {
-        let expected = plx_ui::widgets::strip_pill_rect(lay, CONTENT_TOP, plx_ui::widgets::StatusOverlay::CTRL_H);
+        let expected = plx_ui::widgets::strip_pill_rect(lay, layout::LIBRARY_TOP, plx_ui::widgets::StatusOverlay::CTRL_H);
         let actual = page.library_rect(i, &cx);
         assert_eq!([actual.x, actual.y, actual.w, actual.h], [expected.x, expected.y, expected.w, expected.h]);
     }

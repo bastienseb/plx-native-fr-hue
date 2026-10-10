@@ -11,11 +11,11 @@ use plx_ui::value_chip::ValueChip;
 use plx_ui::{Env, View, on_axis};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Layer { Grid, Document, Rail }
+enum Layer { Grid, Document, Rail, Header }
 
 /// Paint and stop registration share one back-to-front order.
 fn layers(mut visit: impl FnMut(Layer)) {
-    for layer in [Layer::Grid, Layer::Document, Layer::Rail] { visit(layer); }
+    for layer in [Layer::Grid, Layer::Document, Layer::Rail, Layer::Header] { visit(layer); }
 }
 
 fn shelf_on_screen(origin: f32, pitch: f32) -> bool {
@@ -85,8 +85,8 @@ mod layer_tests {
         use super::{layers, Layer};
         let mut seen = Vec::new();
         layers(|layer| seen.push(layer));
-        assert_eq!(seen, [Layer::Grid, Layer::Document, Layer::Rail]);
-        for layer in [Layer::Grid, Layer::Document, Layer::Rail] {
+        assert_eq!(seen, [Layer::Grid, Layer::Document, Layer::Rail, Layer::Header]);
+        for layer in [Layer::Grid, Layer::Document, Layer::Rail, Layer::Header] {
             assert_eq!(seen.iter().filter(|&&found| found == layer).count(), 1);
         }
     }
@@ -128,6 +128,7 @@ impl LibraryScreen {
                 self.pair.master.draw_with_current(f, layout.master, index);
                 f.page_alpha = parent;
             }),
+            Layer::Header => self.draw_library_controls(f),
         });
         // A standing note, never a target: over the page, records no stop and no hit rect.
         self.hold_hint.draw(f.painter.alpha(f.page_alpha), f.measure);
@@ -147,7 +148,7 @@ impl LibraryScreen {
     fn draw_document<H: LibraryLike>(&self, f: &mut DrawFrame<'_, '_, H>) {
         let p = f.painter.alpha(f.page_alpha * self.page_fade.alpha());
         let env = Env::inert();
-        self.draw_library_controls(f);
+        let _clip = f.clip(p, self.content_clip());
         plx_ui::profile::phase("lb.shelves", || {
             for index in self.shelf_window() {
                 #[cfg(test)] self.shelf_visits.set(self.shelf_visits.get() + 1);
@@ -185,17 +186,26 @@ impl LibraryScreen {
         }
     }
 
-    fn draw_library_controls<H: LibraryLike>(&self, f: &DrawFrame<'_, '_, H>) {
+    fn draw_library_controls<H: LibraryLike>(&self, f: &mut DrawFrame<'_, '_, H>) {
         let p = f.painter.alpha(f.page_alpha * self.page_fade.alpha());
         let pop = self.library_pop.scale_with(0, f.press.scale);
-        let y = CONTENT_TOP - self.scroll.pos - self.shelves.first().map_or(0.0, |row| row.cards.heading_lift());
+        let y = layout::LIBRARY_TOP;
         if self.libraries.is_empty()
             || !document_band_visible(p, y, plx_ui::widgets::StatusOverlay::CTRL_H, pop) { return; }
-        // Singleton selectors are hidden for every profile in `sync`; the remaining controls
-        // are always the library pill strip — drawn through the one shared strip path.
+        // Repaint the page's own ground above the scrolling artwork, then clip both paint
+        // and pointer stops to the same fixed horizontal viewport.
+        let header = Rect::new(0.0, plx_ui::widgets::TOP_BAR_BOTTOM, SCR_W,
+            layout::LIBRARY_BOTTOM - plx_ui::widgets::TOP_BAR_BOTTOM);
+        {
+            let _clip = f.clip(f.painter, header);
+            f.painter.alpha(f.page_alpha).rect(header, 0.0, theme::SURFACE_APP, theme::SURFACE_APP, 0.0);
+            self.ground.draw(f.painter.alpha(f.page_alpha), Rect::FULL);
+        }
+        let _clip = f.clip(f.painter, self.library_clip());
         plx_ui::widgets::draw_strip(p, &self.library_capsules, &self.library_lays(f.cx), y,
-            plx_ui::widgets::StatusOverlay::CTRL_H, 0.0,
+            plx_ui::widgets::StatusOverlay::CTRL_H, self.library_scroll.pos,
             plx_ui::widgets::TabGround::Plated { pop });
+        if !self.plaintext_alert.visible() { self.record_library_stops(f); }
     }
 
     fn draw_grid_header<H: LibraryLike>(&self, f: &DrawFrame<'_, '_, H>) {
@@ -216,10 +226,6 @@ impl LibraryScreen {
 
     fn record_document_stops<H: LibraryLike>(&self, f: &mut DrawFrame<'_, '_, H>) {
         if !f.records_stops() { return; }
-        for (index, (elem, _)) in self.libraries.iter().enumerate() {
-            let rect = self.library_rect(index, f.cx);
-            if on_axis(rect.y, rect.h, SCR_H, 0.0) { self.stop(*elem, f); }
-        }
         for index in self.shelf_window() {
             #[cfg(test)] self.shelf_visits.set(self.shelf_visits.get() + 1);
             let Some(row) = self.shelves.get(index) else { continue };
@@ -237,6 +243,14 @@ impl LibraryScreen {
         if self.readout == Readout::Failed { self.stop(RETRY, f); }
     }
 
+    fn record_library_stops<H: LibraryLike>(&self, f: &mut DrawFrame<'_, '_, H>) {
+        if !f.records_stops() { return; }
+        for (index, (elem, _)) in self.libraries.iter().enumerate() {
+            let rect = self.library_rect(index, f.cx).intersect(self.library_clip());
+            if rect.w > 0.0 && rect.h > 0.0 { self.stop(*elem, f); }
+        }
+    }
+
     /// The production stop producers without rasterization, for the no-SDL dispatcher fixture.
     #[cfg(test)]
     pub fn record_stops<H: LibraryLike>(&self, f: &mut DrawFrame<'_, '_, H>) {
@@ -244,6 +258,7 @@ impl LibraryScreen {
             Layer::Grid => self.pair.detail.record_stops(f),
             Layer::Document => self.record_document_stops(f),
             Layer::Rail => self.pair.master.record_stops(f),
+            Layer::Header => self.record_library_stops(f),
         });
     }
 

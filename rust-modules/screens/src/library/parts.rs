@@ -348,13 +348,13 @@ impl GridPart {
 
     /// The painter the grid draws and registers stops through: the page's alpha, and the stops
     /// clipped to the content panel so a row scrolled up under the heading cannot be hit there.
-    fn painter<H: LibraryLike>(f: &plx_ui::screen::DrawFrame<'_, '_, H>) -> Painter {
-        f.painter.alpha(f.page_alpha).clipped(grid_clip())
+    fn painter<H: LibraryLike>(&self, f: &plx_ui::screen::DrawFrame<'_, '_, H>) -> Painter {
+        f.painter.alpha(f.page_alpha).clipped(grid_clip(&self.layout))
     }
 
     #[cfg(test)]
     pub(super) fn record_stops<H: LibraryLike>(&self, f: &mut plx_ui::screen::DrawFrame<'_, '_, H>) {
-        let p = Self::painter(f);
+        let p = self.painter(f);
         let src = self.source(f.cx);
         self.grid.record_stops(f, p, &src);
     }
@@ -385,8 +385,9 @@ impl GridPart {
 }
 
 /// The content panel the grid's stops are clipped to.
-fn grid_clip() -> Rect {
-    Rect::new(MARGIN_X - 32.0, CONTENT_TOP, GRID_RIGHT - MARGIN_X + 32.0, SCR_H - CONTENT_TOP)
+fn grid_clip(layout: &Layout) -> Rect {
+    let top = if layout.libraries { super::layout::LIBRARY_BOTTOM } else { CONTENT_TOP };
+    Rect::new(MARGIN_X - 32.0, top, GRID_RIGHT - MARGIN_X + 32.0, SCR_H - top)
 }
 
 #[cfg(test)]
@@ -476,7 +477,7 @@ impl<H: LibraryLike> Focusable<H> for GridPart {
     /// — which the grid, holding the live page, cannot say. The clip is the content panel's.
     fn place(&self, key: &u32, cx: &Cx<'_, H>, at: At) -> Option<Placed> {
         let index = self.index_of(*key)?;
-        let clip = grid_clip();
+        let clip = grid_clip(&self.layout);
         match at {
             At::Drawn => self.grid.place(cx, &self.source(cx), key, at).map(|placed| Placed { clip, ..placed }),
             At::SpringTarget => {
@@ -534,7 +535,7 @@ impl<H: LibraryLike> Part<H> for GridPart {
         // Metadata still pages ahead via LibraryWork::Want. Hidden artwork waits until visible
         // (`Grid` paints only cards `paint_visible`): repeated warms recycle cold cache slots and
         // keep idle uploading. The grid also registers the stops of the cards it draws.
-        let p = Self::painter(f);
+        let p = self.painter(f);
         let src = self.source(f.cx);
         self.grid.draw(f, p, &src);
     }

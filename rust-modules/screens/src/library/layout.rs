@@ -6,10 +6,12 @@ use plx_ui::theme;
 
 pub(super) const COLS: usize = 6;
 const EPISODE_COLS: usize = 4;
-pub(super) const MAX_LIBRARY_PILLS: usize = 8;
 pub(super) use plx_ui::cards::{GridBand, MAX_GRID_BANDS};
 pub(super) const MAX_LETTERS: usize = 64;
 pub(super) const CONTENT_TOP: f32 = plx_ui::consts::GRID_TOP_Y;
+/// A fixed second navigation band, one shared small gap below the main tab track.
+pub(super) const LIBRARY_TOP: f32 = plx_ui::widgets::TOP_BAR_BOTTOM + theme::space::SM;
+pub(super) const LIBRARY_BOTTOM: f32 = LIBRARY_TOP + plx_ui::widgets::StatusOverlay::CTRL_H + theme::space::SM;
 pub(super) const LIBRARY_ROW_H: f32 = plx_ui::widgets::StatusOverlay::CTRL_H + plx_ui::consts::CARD_DY + plx_ui::consts::TITLE_DY;
 pub(super) const GRID_HEAD_H: f32 = plx_ui::consts::TITLE_DY
     + plx_ui::consts::CARD_DY
@@ -243,11 +245,15 @@ impl Layout {
 
     pub(super) fn row_reveal(&self, row: usize) -> f32 {
         let top = if row == 0 { self.grid_block_top() } else { self.row_top(row) };
-        top.clamp(0.0, self.max_scroll())
+        (top - self.header_clearance()).clamp(0.0, self.max_scroll())
     }
 
     pub(super) fn shelf_reveal(&self, run: &ShelfRun, shelf: usize) -> f32 {
-        (self.shelf_origin(run, shelf) - plx_ui::consts::TITLE_DY).clamp(0.0, self.max_scroll())
+        (self.shelf_origin(run, shelf) - plx_ui::consts::TITLE_DY - self.header_clearance()).clamp(0.0, self.max_scroll())
+    }
+
+    fn header_clearance(&self) -> f32 {
+        if self.libraries { LIBRARY_BOTTOM + plx_ui::consts::TITLE_DY - CONTENT_TOP } else { 0.0 }
     }
 
     pub(super) fn first(&self) -> Option<Block> {
@@ -330,28 +336,6 @@ pub(super) fn rail_scroll_target(scroll: f32, drive: usize, n: usize) -> f32 {
     let drive = drive.min(n.saturating_sub(1)) as f32;
     plx_ui::cards::reveal(scroll, (drive + 2.0) * RAIL_PITCH - height,
         (drive - 1.0) * RAIL_PITCH, max)
-}
-
-/// Preserve the selected favourite while reserving a visible overflow control.
-pub(super) fn library_window(widths: &[f32], selected: usize, available: f32, gap: f32, more: f32, cap: usize) -> (usize, usize) {
-    if widths.is_empty() || cap == 0 { return (0, 0); }
-    let total = widths.iter().sum::<f32>() + gap * widths.len().saturating_sub(1) as f32;
-    if widths.len() <= cap && total <= available { return (0, widths.len()); }
-    let budget = available - more - gap;
-    let room = cap.saturating_sub(1).max(1);
-    let selected = selected.min(widths.len() - 1);
-    for start in 0..=selected {
-        let mut width = 0.0;
-        let mut len = 0;
-        for &pill in widths.iter().skip(start).take(room) {
-            let step = pill + if len == 0 { 0.0 } else { gap };
-            if len > 0 && width + step > budget { break; }
-            width += step;
-            len += 1;
-        }
-        if selected < start + len { return (start, len); }
-    }
-    (selected, 1)
 }
 
 pub(super) fn shelf_pitch(landscape: bool, expanded: f32) -> f32 {
