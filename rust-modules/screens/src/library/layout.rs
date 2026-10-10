@@ -327,7 +327,7 @@ impl Layout {
 
 /// The fixed rail clears the whole header and occupies the grid's right margin.
 pub(super) fn rail_geom(n: usize) -> (f32, f32, f32, f32) {
-    const TOP: f32 = LIBRARY_BOTTOM + theme::space::LG + RAIL_CAP_PAD;
+    const TOP: f32 = LIBRARY_BOTTOM + 2.0 * theme::space::SM + RAIL_CAP_PAD;
     let visible = ((SCR_H - MARGIN_Y - TOP - RAIL_CAP_PAD) / RAIL_PITCH).floor().max(1.0);
     let height = visible.min(n as f32) * RAIL_PITCH;
     (TOP, GRID_RIGHT + RAIL_BAND - RAIL_TRACK_W * 0.5, height, (n as f32 * RAIL_PITCH - height).max(0.0))
@@ -502,7 +502,7 @@ mod tests {
         assert!((MARGIN_X - outside_right - RAIL_BAND).abs() < 0.01,
             "poster margins must balance including the entire alphabet band");
         assert!(cx - RAIL_TRACK_W * 0.5 > right, "the track cannot cover the last poster");
-        assert!(y - RAIL_CAP_PAD >= LIBRARY_BOTTOM + theme::space::LG,
+        assert!(y - RAIL_CAP_PAD >= LIBRARY_BOTTOM + 2.0 * theme::space::SM,
             "the rail's painted cap must clear the fixed header");
         assert!(y + height + RAIL_CAP_PAD <= SCR_H - MARGIN_Y,
             "the lower cap must stay within the visible screen");

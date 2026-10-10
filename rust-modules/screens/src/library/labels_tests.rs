@@ -92,7 +92,7 @@ fn episode_grid_art_and_focus_labels_use_the_landscape_card_contract() {
 }
 
 #[test]
-fn owned_library_overscan_probe_covers_every_legacy_edge() {
+fn library_content_keeps_overscan_while_the_rail_uses_the_outer_margin() {
     let measure = FixtureMeasure;
     let rail = layout::rail_geom(MAX_LETTERS);
     let rail_rect = Rect::new(
@@ -132,10 +132,6 @@ fn owned_library_overscan_probe_covers_every_legacy_edge() {
         None,
     );
     let rects = [
-        (
-            "library A–Z rail track",
-            rail_rect,
-        ),
         (
             "library grid, first column",
             Rect::new(bare.cell_x(0), bare.row_y(0, 0.0), CARD_W, CARD_H),
@@ -188,7 +184,13 @@ fn owned_library_overscan_probe_covers_every_legacy_edge() {
         ),
         ("library failure read-out band", screen.status_frame()),
     ];
-    assert_eq!(rects.len(), 9, "the complete legacy Library probe must contribute nine bounds");
+    // The requested layout centers the poster grid and uses its right margin for
+    // the alphabet, so the track intentionally extends beyond the content safe frame.
+    assert!(rail_rect.x >= layout::GRID_RIGHT + plx_ui::theme::space::XS);
+    assert!(rail_rect.x + rail_rect.w <= consts::SCR_W - (MARGIN_X - layout::RAIL_BAND));
+    assert!(rail_rect.y >= layout::LIBRARY_BOTTOM + 2.0 * plx_ui::theme::space::SM);
+    assert!(rail_rect.y + rail_rect.h <= consts::SCR_H - consts::MARGIN_Y);
+    assert_eq!(rects.len(), 8, "the complete Library content probe must contribute eight bounds");
     for (name, rect) in rects {
         assert!(
             consts::inside_safe(rect),

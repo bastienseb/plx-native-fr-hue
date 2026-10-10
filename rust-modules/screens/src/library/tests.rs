@@ -412,7 +412,7 @@ fn owned_rail_clears_the_fixed_header_and_keeps_the_short_window() {
         let mut groups = Vec::new();
         page.pair.master.groups(&fixture.cx(Some(page.key(page.pair.detail.elems[0]))), &mut groups);
         let rail = groups.first().expect("the fixture has a real rail").extent;
-        assert_eq!(rail.y - layout::RAIL_CAP_PAD, layout::LIBRARY_BOTTOM + plx_ui::theme::space::LG,
+        assert_eq!(rail.y - layout::RAIL_CAP_PAD, layout::LIBRARY_BOTTOM + 2.0 * plx_ui::theme::space::SM,
             "the rail clears the header independently of the scrolling first grid row");
         if n == 9 { assert_eq!(rail.h, 9.0 * layout::RAIL_PITCH); }
         else { assert!(rail.h < n as f32 * layout::RAIL_PITCH, "long alphabets scroll at the same pitch"); }
