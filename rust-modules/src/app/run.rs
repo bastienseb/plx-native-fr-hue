@@ -3741,6 +3741,16 @@ mod lifecycle_regression_tests {
                     }
                     let body = if request.contains("/decision?") {
                         r#"{"MediaContainer":{"Metadata":[{"Media":[{"Part":[{"decision":"directplay"}]}]}]}}"#
+                    } else if request.starts_with("GET /library/metadata/replacement")
+                        || request.starts_with("GET /library/metadata/2") {
+                        // Metadata must describe the requested Part, just like PMS: returning
+                        // the queue's first item here hides wrong-version playback regressions.
+                        r#"{"MediaContainer":{"Metadata":[{"ratingKey":"replacement",
+                        "type":"episode","title":"Replacement","duration":60000,
+                        "Media":[{"videoCodec":"h264","audioCodec":"aac","width":1280,"height":720,
+                        "Part":[{"id":2,"key":"/library/parts/2/file.mkv","Stream":[
+                        {"id":3,"streamType":1,"codec":"h264"},
+                        {"id":4,"streamType":2,"codec":"aac","selected":true}]}]}]}]}}"#
                     } else if !successor {
                         r#"{"MediaContainer":{"machineIdentifier":"lifecycle-fixture","size":1,
                         "playQueueID":1,"playQueueSelectedItemID":11,"playQueueTotalCount":1,
