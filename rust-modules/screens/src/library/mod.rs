@@ -1368,8 +1368,10 @@ impl LibraryScreen {
             rect.x - plx_ui::theme::space::SM - MARGIN_X, max)
     }
     fn library_clip(&self) -> Rect {
-        Rect::new(MARGIN_X, layout::LIBRARY_TOP - plx_ui::theme::space::SM,
-            layout::GRID_RIGHT - MARGIN_X, plx_ui::widgets::StatusOverlay::CTRL_H + 2.0 * plx_ui::theme::space::SM)
+        // The moving strip uses the whole screen width. Selected pills still reveal
+        // inside the safe margins, while their neighbours continue to the screen edges.
+        Rect::new(0.0, layout::LIBRARY_TOP - plx_ui::theme::space::SM,
+            SCR_W, plx_ui::widgets::StatusOverlay::CTRL_H + 2.0 * plx_ui::theme::space::SM)
     }
     fn content_clip(&self) -> Rect {
         let top = if self.libraries.is_empty() { plx_ui::widgets::TOP_BAR_BOTTOM } else { layout::LIBRARY_BOTTOM };

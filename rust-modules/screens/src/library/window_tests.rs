@@ -47,6 +47,8 @@ fn library_header_stays_fixed_and_clickable_at_the_end_of_the_catalog() {
     assert_eq!([before.rect.x, before.rect.y, before.rect.w, before.rect.h],
         [after.rect.x, after.rect.y, after.rect.w, after.rect.h]);
     assert!(after.rect.intersect(after.clip).h > 0.0);
+    assert_eq!(after.clip.x, 0.0, "the fixed strip must reach the left screen edge");
+    assert_eq!(after.clip.w, SCR_W, "the fixed strip must reach the right screen edge");
     let mut draw = DrawFrame::new(&cx, plx_ui::Painter::root());
     page.record_stops(&mut draw);
     assert!(draw.into_stops().iter().any(|stop| stop.key.elem == elem));

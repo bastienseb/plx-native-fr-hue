@@ -25,7 +25,9 @@ pub(super) const RAIL_TRACK_W: f32 = 44.0;
 pub(super) const RAIL_PITCH: f32 = 34.0;
 pub(super) const RAIL_CAP_PAD: f32 = 10.0;
 pub(super) const RAIL_BAND: f32 = RAIL_TRACK_W + theme::space::XS;
-pub(super) const GRID_RIGHT: f32 = SCR_W - MARGIN_X - RAIL_BAND;
+// Center the poster grid itself. The right margin accommodates the alphabet's track
+// and gap: left air = right outer air + the full alphabet band.
+pub(super) const GRID_RIGHT: f32 = SCR_W - MARGIN_X;
 pub(super) const GRID_GAP: f32 =
     (GRID_RIGHT - MARGIN_X - COLS as f32 * CARD_W) / (COLS as f32 - 1.0);
 
@@ -323,12 +325,12 @@ impl Layout {
 
 }
 
-/// The original fixed rail band: it never follows the scrolling first grid row.
+/// The fixed rail clears the whole header and occupies the grid's right margin.
 pub(super) fn rail_geom(n: usize) -> (f32, f32, f32, f32) {
-    const TOP: f32 = 232.0 + 8.0;
+    const TOP: f32 = LIBRARY_BOTTOM + theme::space::LG + RAIL_CAP_PAD;
     let visible = ((SCR_H - MARGIN_Y - TOP - RAIL_CAP_PAD) / RAIL_PITCH).floor().max(1.0);
     let height = visible.min(n as f32) * RAIL_PITCH;
-    (TOP, SCR_W - MARGIN_X - RAIL_TRACK_W * 0.5, height, (n as f32 * RAIL_PITCH - height).max(0.0))
+    (TOP, GRID_RIGHT + RAIL_BAND - RAIL_TRACK_W * 0.5, height, (n as f32 * RAIL_PITCH - height).max(0.0))
 }
 
 pub(super) fn rail_scroll_target(scroll: f32, drive: usize, n: usize) -> f32 {
@@ -494,7 +496,16 @@ mod tests {
         assert_eq!(layout.cell_x(0), MARGIN_X);
         let right = layout.cell_x(COLS - 1) + layout.card_w();
         assert!((right - GRID_RIGHT).abs() < 0.01);
-        assert!(right + RAIL_BAND <= SCR_W - MARGIN_X + 0.01);
+        let (y, cx, height, _) = rail_geom(MAX_LETTERS);
+        let rail_right = cx + RAIL_TRACK_W * 0.5;
+        let outside_right = SCR_W - rail_right;
+        assert!((MARGIN_X - outside_right - RAIL_BAND).abs() < 0.01,
+            "poster margins must balance including the entire alphabet band");
+        assert!(cx - RAIL_TRACK_W * 0.5 > right, "the track cannot cover the last poster");
+        assert!(y - RAIL_CAP_PAD >= LIBRARY_BOTTOM + theme::space::LG,
+            "the rail's painted cap must clear the fixed header");
+        assert!(y + height + RAIL_CAP_PAD <= SCR_H - MARGIN_Y,
+            "the lower cap must stay within the visible screen");
     }
 
     #[test]
