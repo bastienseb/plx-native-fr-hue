@@ -1340,12 +1340,63 @@ pub(crate) fn begin_frame() {
     log_residency_settled(settled);
 }
 
+/// Revalidate only the last frame's drawn images, off-thread and at a bounded cadence.
+pub(crate) fn refresh_visible() {
+    if plx_gfx::dump::armed() || !store_idle() || !refresh::sweep_due() { return; }
+    let jobs = {
+        let g = store();
+        let age = g.slots.iter().filter(|slot| slot.visible && matches!(slot.state, P_READY | P_FAILED))
+            .map(|slot| g.frame.wrapping_sub(slot.frame)).min();
+        g.slots.iter().filter(|slot| slot.visible && matches!(slot.state, P_READY | P_FAILED)
+            && Some(g.frame.wrapping_sub(slot.frame)) == age).filter_map(|slot| {
+            let client = plx_plex::plex::client_for(slot.srv)?;
+            let path = String::from_utf8_lossy(key_bytes(slot)).into_owned();
+            let source = plx_platform::imgcache::transcode_source(&path)?;
+            if !source.starts_with("/library/metadata/") { return None; }
+            let key = plx_platform::imgcache::classify(&disk_namespace(client), &path)?;
+            Some((client, path, key, slot.cache_gen, slot.token_gen))
+        }).collect::<Vec<_>>()
+    };
+    for (client, path, key, epoch, token_gen) in jobs {
+        refresh::enqueue_visible(client, path, key, epoch, token_gen);
+    }
+}
+
+fn drain_artwork_refresh() {
+    let Some(landed) = refresh::take_landed() else { return; };
+    let job = landed.job;
+    if job.epoch != plx_platform::imgcache::generation()
+        || !plx_plex::plex::client_for(job.client.id()).is_some_and(|live|
+            std::ptr::eq(live, job.client) && live.token_gen() == job.token_gen) { return; }
+    let mut g = store();
+    let Some(index) = g.slots.iter().position(|slot| matches!(slot.state, P_READY | P_FAILED)
+        && slot.cache_gen == job.epoch && slot.token_gen == job.token_gen
+        && same_art(slot, job.client.id(), job.path.as_bytes())) else { return; };
+    let key = PosterKey(index as u32);
+    match landed.change {
+        refresh::Change::Pixels(decoded) => {
+            g.slots[index].state = P_READY;
+            g.slots[index].pw = decoded.w as i32;
+            g.slots[index].ph = decoded.h as i32;
+            drop(g);
+            tex::accept(PosterReady { key, result: Ok(decoded) });
+        }
+        refresh::Change::Removed => {
+            g.slots[index].state = P_FAILED;
+            drop(g);
+            tex::free(key, &mut GfxUploader);
+            plx_machine::idle::invalidate();
+        }
+    }
+}
+
 /// MAIN thread, once per frame (§3.3 step 3, the adapter's results): every slot a worker has
 /// DECODED hands its pixels to the render cache as one `PosterReady` and becomes READY. No GL
 /// here — the cache uploads in PREPARE ([`prepare`]). The pixels are copied once out of the
 /// decoder's C allocation into the owned `Decoded` (a 250x375 poster is ~375 KB, tens of
 /// microseconds) so the library owns what it uploads.
 pub(crate) fn drain_decoded() {
+    drain_artwork_refresh();
     loop {
         let (idx, px, w, h, current) = {
             let mut g = store();

@@ -274,6 +274,14 @@ pub struct Preferences {
 
 /// The movie/show/season/episode item. Missing fields default (Plex omits optionals).
 #[derive(Deserialize, Default)]
+pub struct MetadataImage {
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub url: String,
+}
+
+#[derive(Deserialize, Default)]
 pub struct Metadata {
     /// Only on a read that asked `includePreferences=1` — see [`Preferences`].
     #[serde(rename = "Preferences", default)]
@@ -379,6 +387,10 @@ pub struct Metadata {
     pub parent_thumb: String,
     #[serde(default)]
     pub art: String,
+    /// PMS's current, versioned artwork (coverPoster, background, clearLogo, snapshot).
+    /// None distinguishes older servers which do not publish this inventory.
+    #[serde(rename = "Image", default)]
+    pub images: Option<Vec<MetadataImage>>,
     #[serde(rename = "grandparentThumb", default)]
     pub grandparent_thumb: String,
     #[serde(rename = "Media", default)]

@@ -3,6 +3,14 @@ use super::*;
 const AVATAR: &str = "/photo/:/transcode?width=300&height=300&minSize=1&url=https%3A%2F%2Fplex.tv%2Fusers%2F0123abcd%2Favatar%3Fc%3D1700000000&X-Plex-Token=tok";
 const POSTER: &str = "/photo/:/transcode?width=250&height=375&minSize=1&url=%2Flibrary%2Fmetadata%2F42%2Fthumb%2F1&X-Plex-Token=t";
 
+#[test]
+fn transcode_source_excludes_credentials_and_rejects_ambiguous_requests() {
+    assert_eq!(transcode_source(POSTER).as_deref(), Some("/library/metadata/42/thumb/1"));
+    assert!(transcode_source(&format!("{POSTER}&url=second")).is_none());
+    assert!(transcode_source("/photo/:/transcode?url=&width=250").is_none());
+    assert!(transcode_source("/other?url=source").is_none());
+}
+
 struct TestDir(PathBuf);
 impl TestDir {
     fn new() -> Self {

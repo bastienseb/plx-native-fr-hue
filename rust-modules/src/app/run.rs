@@ -369,6 +369,9 @@ unsafe fn prepare_window(app: &mut App, fr: &mut Frame) {
     // upload is below, on the presenting side of the decision.
     super::adapters::poster::begin_frame();
     super::adapters::poster::drain_decoded();
+    if !matches!(app.route(), AppArg::Player) && app.window_activity.allow_present(true) {
+        super::adapters::poster::refresh_visible();
+    }
 
     fr.player = matches!(app.route(), AppArg::Player);
     // ---- the player page's CLOCK-DRIVEN motion report (spec §8.3, §9) ----

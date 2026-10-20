@@ -11,7 +11,39 @@ fn sidecar_key_allowed(key: &str) -> bool {
         && ext.len() <= 10 && ext.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
+fn artwork_address(source: &str) -> Option<(&str, &str)> {
+    let tail = source.split('?').next()?.strip_prefix("/library/metadata/")?;
+    let (rk, tail) = tail.split_once('/')?;
+    if rk.is_empty() || rk.len() > 20 || !rk.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    let kind = tail.split('/').next()?;
+    matches!(kind, "thumb" | "art" | "clearLogo").then_some((rk, kind))
+}
+
+fn current_artwork(item: &Metadata, rk: &str, kind: &str) -> Option<String> {
+    match kind {
+        "thumb" => (!item.thumb.is_empty()).then(|| item.thumb.clone()),
+        "art" => (!item.art.is_empty()).then(|| item.art.clone()),
+        "clearLogo" => match &item.images {
+            Some(images) => images.iter().find(|image| image.kind == "clearLogo" && !image.url.is_empty())
+                .map(|image| image.url.clone()),
+            // Older PMS versions have no Image inventory. Retain their endpoint, but
+            // include the metadata revision so the photo transcoder cannot pin an old logo.
+            None => Some(format!("/library/metadata/{rk}/clearLogo?timestamp={}", item.updated_at)),
+        },
+        _ => None,
+    }
+}
+
 impl Client {
+    /// Revalidate a cached artwork source without changing the item or its watch state.
+    /// Outer None = unavailable; Some(None) = the server authoritatively removed that image.
+    pub fn current_artwork_source(&self, source: &str) -> Option<Option<String>> {
+        let Some((rk, kind)) = artwork_address(source) else { return Some(Some(source.to_string())); };
+        let item = self.get_json(&format!("/library/metadata/{rk}?includeFields=1"))?
+            .metadata.into_iter().next()?;
+        if item.rating_key != rk { return None; }
+        Some(current_artwork(&item, rk, kind))
+    }
     /// GET /library/sections (D-3: spec-canonical is /library/sections/all; keep the
     /// known-working bare path). Read `.directory[]` for {kind, key}.
     pub fn sections(&self) -> Option<MediaContainer> {
@@ -363,6 +395,32 @@ fn guid_type(guid: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn artwork_revision_keeps_poster_background_and_logo_separate() {
+        let item: Metadata = serde_json::from_str(r#"{
+            "ratingKey":"42", "thumb":"/library/metadata/42/thumb/2",
+            "art":"/library/metadata/42/art/3", "updatedAt":4,
+            "Image":[{"type":"coverPoster","url":"/poster"},
+                     {"type":"clearLogo","url":"/library/metadata/42/clearLogo/5"}]
+        }"#).unwrap();
+        assert_eq!(current_artwork(&item, "42", "thumb").as_deref(), Some("/library/metadata/42/thumb/2"));
+        assert_eq!(current_artwork(&item, "42", "art").as_deref(), Some("/library/metadata/42/art/3"));
+        assert_eq!(current_artwork(&item, "42", "clearLogo").as_deref(), Some("/library/metadata/42/clearLogo/5"));
+        let removed: Metadata = serde_json::from_str(r#"{"ratingKey":"42","Image":[]}"#).unwrap();
+        assert!(current_artwork(&removed, "42", "clearLogo").is_none());
+        let legacy: Metadata = serde_json::from_str(r#"{"ratingKey":"42","updatedAt":6}"#).unwrap();
+        assert_eq!(current_artwork(&legacy, "42", "clearLogo").as_deref(), Some("/library/metadata/42/clearLogo?timestamp=6"));
+    }
+
+    #[test]
+    fn artwork_lookup_accepts_only_a_metadata_image_address() {
+        assert_eq!(artwork_address("/library/metadata/42/clearLogo?timestamp=3"), Some(("42", "clearLogo")));
+        assert_eq!(artwork_address("/library/metadata/42/thumb/2"), Some(("42", "thumb")));
+        for path in ["/library/metadata/../art", "/library/metadata/42/file", "https://example.test/image", "/library/metadata//thumb"] {
+            assert!(artwork_address(path).is_none(), "{path}");
+        }
+    }
 
     #[cfg(feature = "devtriggers")]
     #[test]

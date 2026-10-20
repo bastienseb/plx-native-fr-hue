@@ -17,6 +17,18 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const REFRESH_AFTER: Duration = Duration::from_secs(24 * 3600);
+
+/// The source carried by a photo request, with no authentication or transform fields.
+pub fn transcode_source(built_key: &str) -> Option<String> {
+    let (path, query) = built_key.split_once('?')?;
+    if path != "/photo/:/transcode" { return None; }
+    let mut sources = query.split('&').filter_map(|pair| {
+        let (key, value) = pair.split_once('=')?;
+        (key == "url").then(|| percent_decode(value))
+    });
+    let source = sources.next().filter(|value| !value.is_empty())?;
+    sources.next().is_none().then_some(source)
+}
 const TOUCH_AFTER: Duration = Duration::from_secs(3600);
 const MAX_FILE: usize = 4 * 1024 * 1024;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;

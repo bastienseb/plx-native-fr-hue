@@ -25,11 +25,20 @@ fetch timestamp never moves on a hit. Writes use a temporary file and rename, ca
 size-bounded, and corrupt entries are removed and fetched again. Unavailable storage is a cache
 miss; a failed write cannot prevent the image from displaying.
 
-On a disk hit older than **24 hours**, stale artwork is displayed immediately. A separate refresh worker starts work
-when demand loading is idle, with at most 32 queued jobs and a bounded recent-attempt set to
-suppress retry storms. Refresh validates decoding before replacing a file and affects the next
-load; it never holds the source-store lock while accessing the network. A failed refresh keeps
-the old image. Changed versioned source paths miss immediately rather than waiting for expiry.
+On a disk hit older than **24 hours**, stale artwork is displayed immediately. A separate refresh
+worker starts work when demand loading is idle, with at most 64 queued jobs and a bounded
+recent-attempt set. While browsing in the foreground, the last drawn images are also revalidated
+at most once every **15 seconds**. A read-only metadata request resolves the current poster,
+background or clear logo separately; subsequent sweeps fetch image bytes only when that source
+revision changes. A missing logo in a server-provided image inventory removes the old resident
+logo so the title fallback can appear. Older servers without that inventory use their versioned
+logo endpoint. Transport failures preserve the existing image.
+
+Refresh validates decoding before updating the disk file and hands one decoded result at a time
+to the main thread, which replaces the live texture without restarting the app. Network and disk
+access never hold the source-store lock; playback, background windows and frame dumps do not
+schedule visible-art sweeps. Epoch and current-client checks retire old-account and old-profile
+results before they can be published.
 
 RAM residency remains independent of library size: 64 source slots and a 44 MiB GPU texture
 budget. Demand workers stop claiming requests when combined decoded and pending-upload pixels

@@ -1,48 +1,66 @@
 //! Bounded stale-while-revalidate lane. Cached pixels reach the render queue immediately;
 //! slow or offline servers cannot occupy either demand decoder or the main-thread store lock.
-//! Only idle source periods start refreshes. A key gets at most one attempt per account epoch
-//! within the bounded recent-attempt set, so revisiting stale art cannot hammer an offline PMS.
+//! Visible artwork is revalidated at a bounded cadence, only while the source is idle.
+//! Metadata selects the current poster/backdrop/logo; changed pixels also reach the live cache.
 
 use plx_platform::imgcache::DiskKey;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-const QUEUE_CAP: usize = 32;
+const QUEUE_CAP: usize = 64;
 const RECENT_CAP: usize = 8192;
+const REFRESH_PERIOD: Duration = Duration::from_secs(15);
 
-struct Job {
-    client: &'static plx_plex::plex::Client,
-    path: String,
+pub(super) struct Job {
+    pub(super) client: &'static plx_plex::plex::Client,
+    pub(super) path: String,
     key: DiskKey,
-    epoch: u64,
-    token_gen: u32,
+    pub(super) epoch: u64,
+    pub(super) token_gen: u32,
+    force: bool,
 }
+
+pub(super) enum Change { Pixels(plx_ui::tex::Decoded), Removed }
+pub(super) struct Landed { pub(super) job: Job, pub(super) change: Change }
+static LANDED: Mutex<Option<Landed>> = Mutex::new(None);
 
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Job>,
-    seen: HashSet<DiskKey>,
+    seen: HashMap<DiskKey, Instant>,
+    resolved: HashMap<DiskKey, Option<String>>,
     order: VecDeque<DiskKey>,
+    last_sweep: Option<Instant>,
     epoch: u64,
     running: bool,
 }
 impl Queue {
     fn push(&mut self, job: Job) -> bool {
+        self.push_at(job, Instant::now())
+    }
+    fn push_at(&mut self, job: Job, now: Instant) -> bool {
         if !self.running || job.epoch < self.epoch { return false; }
         if self.epoch != job.epoch {
             self.jobs.clear();
             self.seen.clear();
+            self.resolved.clear();
             self.order.clear();
             self.epoch = job.epoch;
         }
-        if self.jobs.len() >= QUEUE_CAP || self.seen.contains(&job.key) { return false; }
-        if self.order.len() == RECENT_CAP {
-            if let Some(old) = self.order.pop_front() { self.seen.remove(&old); }
+        if self.jobs.len() >= QUEUE_CAP || self.seen.get(&job.key)
+            .is_some_and(|last| now.saturating_duration_since(*last) < REFRESH_PERIOD) { return false; }
+        if !self.seen.contains_key(&job.key) {
+            if self.order.len() == RECENT_CAP {
+                if let Some(old) = self.order.pop_front() {
+                    self.seen.remove(&old);
+                    self.resolved.remove(&old);
+                }
+            }
+            self.order.push_back(job.key.clone());
         }
-        self.seen.insert(job.key.clone());
-        self.order.push_back(job.key.clone());
+        self.seen.insert(job.key.clone(), now);
         self.jobs.push_back(job);
         true
     }
@@ -53,11 +71,34 @@ static READY: Condvar = Condvar::new();
 static WORKER: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 pub(super) fn enqueue(client: &'static plx_plex::plex::Client, path: String, key: DiskKey, epoch: u64, token_gen: u32) {
+    enqueue_with_force(client, path, key, epoch, token_gen, true);
+}
+
+pub(super) fn enqueue_visible(client: &'static plx_plex::plex::Client, path: String, key: DiskKey, epoch: u64, token_gen: u32) {
+    enqueue_with_force(client, path, key, epoch, token_gen, false);
+}
+
+fn enqueue_with_force(client: &'static plx_plex::plex::Client, path: String, key: DiskKey, epoch: u64, token_gen: u32, force: bool) {
     if epoch != plx_platform::imgcache::generation() { return; }
     let mut q = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
-    if q.as_mut().is_some_and(|q| q.push(Job { client, path, key, epoch, token_gen })) {
+    if q.as_mut().is_some_and(|q| q.push(Job { client, path, key, epoch, token_gen, force })) {
         READY.notify_one();
     }
+}
+
+pub(super) fn sweep_due() -> bool {
+    let mut queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(queue) = queue.as_mut().filter(|queue| queue.running) else { return false; };
+    let now = Instant::now();
+    if queue.last_sweep.is_some_and(|last| now.duration_since(last) < REFRESH_PERIOD) { return false; }
+    queue.last_sweep = Some(now);
+    true
+}
+
+pub(super) fn take_landed() -> Option<Landed> {
+    let landed = LANDED.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if landed.is_some() { READY.notify_one(); }
+    landed
 }
 
 pub(super) fn init() {
@@ -78,6 +119,7 @@ pub(super) fn shutdown() {
     if let Some(h) = WORKER.lock().unwrap_or_else(|e| e.into_inner()).take() {
         plx_base::task::join("image-refresh", h);
     }
+    LANDED.lock().unwrap_or_else(|e| e.into_inner()).take();
 }
 
 fn run() {
@@ -87,7 +129,8 @@ fn run() {
             loop {
                 let Some(q) = guard.as_mut() else { return; };
                 if !q.running { return; }
-                if !q.jobs.is_empty() && super::store_idle() && plx_ui::tex::pending_bytes() == 0 {
+                if !q.jobs.is_empty() && super::store_idle() && plx_ui::tex::pending_bytes() == 0
+                    && LANDED.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
                     break q.jobs.pop_front().unwrap();
                 }
                 guard = READY.wait_timeout(guard, Duration::from_millis(250))
@@ -95,15 +138,59 @@ fn run() {
             }
         };
         if job.epoch != plx_platform::imgcache::generation() || !grant_is_current(&job) { continue; }
-        // Failed refresh leaves both the cached file and already-published texture untouched.
-        if let Some(bytes) = super::fetch_image(job.client, &job.path) {
+        refresh(job);
+    }
+}
+
+fn current_request(request: &str, source: &str) -> Option<String> {
+    let (path, query) = request.split_once('?')?;
+    if path != "/photo/:/transcode" { return None; }
+    Some(format!("{path}?{}", query.split('&').map(|pair| {
+        if pair.split_once('=').is_some_and(|(key, _)| key == "url") {
+            format!("url={}", plx_plex::plex::urlenc_str(source))
+        } else { pair.to_string() }
+    }).collect::<Vec<_>>().join("&")))
+}
+
+fn refresh(job: Job) {
+    let Some(source) = plx_platform::imgcache::transcode_source(&job.path) else { return; };
+    let Some(current) = job.client.current_artwork_source(&source) else { return; };
+    if job.epoch != plx_platform::imgcache::generation() || !grant_is_current(&job) { return; }
+    let unchanged = QUEUE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        .filter(|queue| queue.epoch == job.epoch)
+        .and_then(|queue| queue.resolved.get(&job.key)).is_some_and(|previous| *previous == current);
+    if unchanged && !job.force { return; }
+    let change = if let Some(ref source) = current {
+        let Some(path) = current_request(&job.path, source) else { return; };
+        let Some(bytes) = super::fetch_image(job.client, &path) else { return; };
+        if job.epoch != plx_platform::imgcache::generation() || !grant_is_current(&job) { return; }
+        // The disk cache may already be newer than the resident texture. Always land
+        // this revision once; `resolved` prevents repeated decoding on later sweeps.
+        {
             let (mut w, mut h) = (0, 0);
             let px = plx_gfx::img::img_decode_rgba(bytes.as_ptr(), bytes.len() as i32, &mut w, &mut h);
-            if !px.is_null() {
-                plx_gfx::img::img_free(px);
-                plx_platform::imgcache::write_at(job.epoch, &job.key, &bytes);
-            }
+            if px.is_null() { return; }
+            let pixels = if w > 0 && h > 0 && w <= u16::MAX as i32 && h <= u16::MAX as i32 {
+                // SAFETY: img_decode_rgba owns exactly w*h decoded RGBA bytes.
+                Some(unsafe { std::slice::from_raw_parts(px, w as usize * h as usize * 4) }.into())
+            } else { None };
+            plx_gfx::img::img_free(px);
+            let Some(rgba) = pixels else { return; };
+            plx_platform::imgcache::write_at(job.epoch, &job.key, &bytes);
+            Some(Change::Pixels(plx_ui::tex::Decoded { w: w as u16, h: h as u16, rgba }))
         }
+    } else {
+        plx_platform::imgcache::remove_at(job.epoch, &job.key);
+        Some(Change::Removed)
+    };
+    if job.epoch != plx_platform::imgcache::generation() || !grant_is_current(&job) { return; }
+    if let Some(queue) = QUEUE.lock().unwrap_or_else(|e| e.into_inner()).as_mut()
+        .filter(|queue| queue.epoch == job.epoch) {
+        queue.resolved.insert(job.key.clone(), current);
+    }
+    if let Some(change) = change {
+        *LANDED.lock().unwrap_or_else(|e| e.into_inner()) = Some(Landed { job, change });
+        plx_machine::idle::invalidate();
     }
 }
 
@@ -119,7 +206,7 @@ mod tests {
     use super::*;
     fn job(client: &'static plx_plex::plex::Client, i: usize, epoch: u64) -> Job {
         let path = format!("/photo/:/transcode?url=%2Fthumb%2F{i}&width=250&height=375");
-        Job { client, key: plx_platform::imgcache::classify("fixture", &path).unwrap(), path, epoch, token_gen: client.token_gen() }
+        Job { client, key: plx_platform::imgcache::classify("fixture", &path).unwrap(), path, epoch, token_gen: client.token_gen(), force: true }
     }
     #[test]
     fn refreshes_are_bounded_deduplicated_and_retired_with_the_account() {
@@ -148,5 +235,31 @@ mod tests {
         plx_plex::plex::register_for_test("refresh-fixture", "127.0.0.1", 1, "changed-grant", "fixture");
         assert!(!grant_is_current(&old_grant), "queued old-profile credentials must never refresh");
         plx_plex::plex::reset_servers_for_test();
+    }
+
+    #[test]
+    fn visible_art_can_be_rechecked_after_the_refresh_period() {
+        let _guard = plx_base::testlock::serial();
+        plx_plex::plex::reset_servers_for_test();
+        let sid = plx_plex::plex::register_for_test("periodic-art", "127.0.0.1", 1, "fixture", "fixture");
+        let client = plx_plex::plex::client_for(sid).unwrap();
+        let now = Instant::now();
+        let mut queue = Queue { running: true, ..Default::default() };
+        assert!(queue.push_at(job(client, 0, 1), now));
+        queue.jobs.pop_front();
+        assert!(!queue.push_at(job(client, 0, 1), now + REFRESH_PERIOD / 2));
+        assert!(queue.push_at(job(client, 0, 1), now + REFRESH_PERIOD));
+        assert_eq!(queue.seen.len(), 1);
+        plx_plex::plex::reset_servers_for_test();
+    }
+
+    #[test]
+    fn current_image_replaces_only_the_source_and_keeps_transforms() {
+        let request = "/photo/:/transcode?width=720&url=%2Fold&height=405&format=png&X-Plex-Token=fixture";
+        let source = "/library/metadata/42/clearLogo?timestamp=2";
+        let current = current_request(request, source).unwrap();
+        assert_eq!(plx_platform::imgcache::transcode_source(&current).as_deref(), Some(source));
+        assert_eq!(current, format!("/photo/:/transcode?width=720&url={}&height=405&format=png&X-Plex-Token=fixture", plx_plex::plex::urlenc_str(source)));
+        assert!(current_request("/other?url=old", source).is_none());
     }
 }
