@@ -1342,7 +1342,7 @@ pub(crate) fn begin_frame() {
 
 /// Revalidate only the last frame's drawn images, off-thread and at a bounded cadence.
 pub(crate) fn refresh_visible() {
-    if plx_gfx::dump::armed() || !store_idle() || !refresh::sweep_due() { return; }
+    if plx_gfx::dump::armed() || !store_idle() || !refresh::sweep_due(crate::app::clock::now()) { return; }
     let jobs = {
         let g = store();
         let age = g.slots.iter().filter(|slot| slot.visible && matches!(slot.state, P_READY | P_FAILED))

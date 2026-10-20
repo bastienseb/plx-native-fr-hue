@@ -7,11 +7,11 @@ use plx_platform::imgcache::DiskKey;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Condvar, Mutex};
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const QUEUE_CAP: usize = 64;
 const RECENT_CAP: usize = 8192;
-const REFRESH_PERIOD: Duration = Duration::from_secs(15);
+const REFRESH_PERIOD_MS: u32 = 15_000;
 
 pub(super) struct Job {
     pub(super) client: &'static plx_plex::plex::Client,
@@ -29,18 +29,19 @@ static LANDED: Mutex<Option<Landed>> = Mutex::new(None);
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Job>,
-    seen: HashMap<DiskKey, Instant>,
+    seen: HashMap<DiskKey, u32>,
     resolved: HashMap<DiskKey, Option<String>>,
     order: VecDeque<DiskKey>,
-    last_sweep: Option<Instant>,
+    last_sweep: Option<u32>,
     epoch: u64,
     running: bool,
 }
 impl Queue {
     fn push(&mut self, job: Job) -> bool {
-        self.push_at(job, Instant::now())
+        // Worker arrivals inherit the latest main-thread sweep tick, never read SDL.
+        self.push_at(job, self.last_sweep.unwrap_or(0))
     }
-    fn push_at(&mut self, job: Job, now: Instant) -> bool {
+    fn push_at(&mut self, job: Job, now: u32) -> bool {
         if !self.running || job.epoch < self.epoch { return false; }
         if self.epoch != job.epoch {
             self.jobs.clear();
@@ -50,7 +51,7 @@ impl Queue {
             self.epoch = job.epoch;
         }
         if self.jobs.len() >= QUEUE_CAP || self.seen.get(&job.key)
-            .is_some_and(|last| now.saturating_duration_since(*last) < REFRESH_PERIOD) { return false; }
+            .is_some_and(|last| now.wrapping_sub(*last) < REFRESH_PERIOD_MS) { return false; }
         if !self.seen.contains_key(&job.key) {
             if self.order.len() == RECENT_CAP {
                 if let Some(old) = self.order.pop_front() {
@@ -86,11 +87,10 @@ fn enqueue_with_force(client: &'static plx_plex::plex::Client, path: String, key
     }
 }
 
-pub(super) fn sweep_due() -> bool {
+pub(super) fn sweep_due(now: u32) -> bool {
     let mut queue = QUEUE.lock().unwrap_or_else(|e| e.into_inner());
     let Some(queue) = queue.as_mut().filter(|queue| queue.running) else { return false; };
-    let now = Instant::now();
-    if queue.last_sweep.is_some_and(|last| now.duration_since(last) < REFRESH_PERIOD) { return false; }
+    if queue.last_sweep.is_some_and(|last| now.wrapping_sub(last) < REFRESH_PERIOD_MS) { return false; }
     queue.last_sweep = Some(now);
     true
 }
@@ -243,12 +243,12 @@ mod tests {
         plx_plex::plex::reset_servers_for_test();
         let sid = plx_plex::plex::register_for_test("periodic-art", "127.0.0.1", 1, "fixture", "fixture");
         let client = plx_plex::plex::client_for(sid).unwrap();
-        let now = Instant::now();
+        let now: u32 = u32::MAX - 5_000;
         let mut queue = Queue { running: true, ..Default::default() };
         assert!(queue.push_at(job(client, 0, 1), now));
         queue.jobs.pop_front();
-        assert!(!queue.push_at(job(client, 0, 1), now + REFRESH_PERIOD / 2));
-        assert!(queue.push_at(job(client, 0, 1), now + REFRESH_PERIOD));
+        assert!(!queue.push_at(job(client, 0, 1), now.wrapping_add(REFRESH_PERIOD_MS / 2)));
+        assert!(queue.push_at(job(client, 0, 1), now.wrapping_add(REFRESH_PERIOD_MS)));
         assert_eq!(queue.seen.len(), 1);
         plx_plex::plex::reset_servers_for_test();
     }

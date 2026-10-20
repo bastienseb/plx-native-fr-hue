@@ -39,7 +39,7 @@ impl Client {
     /// Outer None = unavailable; Some(None) = the server authoritatively removed that image.
     pub fn current_artwork_source(&self, source: &str) -> Option<Option<String>> {
         let Some((rk, kind)) = artwork_address(source) else { return Some(Some(source.to_string())); };
-        let item = self.get_json(&format!("/library/metadata/{rk}?includeFields=1"))?
+        let item = self.get_json(&format!("/library/metadata/{rk}"))?
             .metadata.into_iter().next()?;
         if item.rating_key != rk { return None; }
         Some(current_artwork(&item, rk, kind))
